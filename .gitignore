@@ -12,5 +12,6 @@ __pycache__/
 # Quantized model output (large, generated)
 models/
 compressed_models/
+test/tmp/
 
 thoughts/

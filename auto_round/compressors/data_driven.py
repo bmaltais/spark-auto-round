@@ -29,7 +29,6 @@ from auto_round.report import QuantizationReport
 from auto_round.algorithms.alg_config import AlgConfig
 from auto_round.calibration.utils import (
     _infer_last_cache_name,
-    _split_inputs_diffusion,
     _update_inputs,
 )
 from auto_round.compressors.base import BaseCompressor

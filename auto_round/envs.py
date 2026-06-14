@@ -19,14 +19,12 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 if TYPE_CHECKING:
     AR_LOG_LEVEL: str = "INFO"
-    AR_USE_MODELSCOPE: bool = "False"
     AUTO_ROUND_CACHE: Optional[str] = None
 
 environment_variables: dict[str, Callable[[], Any]] = {
     # this is used for configuring the default logging level
     "AR_LOG_LEVEL": lambda: os.getenv("AR_LOG_LEVEL", "INFO").upper(),
     "AR_ENABLE_COMPILE_PACKING": lambda: os.getenv("AR_ENABLE_COMPILE_PACKING", "0").lower() in ("1", "true", "yes"),
-    "AR_USE_MODELSCOPE": lambda: os.getenv("AR_USE_MODELSCOPE", "False").lower() in ["1", "true"],
     "AR_WORK_SPACE": lambda: os.getenv("AR_WORK_SPACE", "ar_work_space").lower(),
     "AR_ENABLE_UNIFY_MOE_INPUT_SCALE": lambda: os.getenv("AR_ENABLE_UNIFY_MOE_INPUT_SCALE", "False").lower()
     in ["1", "true"],
@@ -88,12 +86,8 @@ def set_config(**kwargs):
     for key, value in kwargs.items():
         if key in environment_variables:
             # Convert value to appropriate string format
-            if key == "AR_USE_MODELSCOPE":
-                # Handle boolean values for boolean env flags
-                str_value = "true" if value in [True, "True", "true", "1", 1] else "false"
-            else:
-                # For other variables, convert to string
-                str_value = str(value)
+            # For other variables, convert to string
+            str_value = str(value)
 
             # Set the environment variable
             os.environ[key] = str_value

@@ -21,13 +21,12 @@ if TYPE_CHECKING:
     from auto_round.compressors.base import BaseCompressor
     from auto_round.compressors.config import (
         ExtraConfig,
-        MLLMExtraConfig,
+        SARConfig,
         SchemeExtraConfig,
         TuningExtraConfig,
     )
     from auto_round.compressors.data_driven import DataDrivenCompressor
     from auto_round.compressors.entry import AutoRoundCompatible, AutoRound
-    from auto_round.compressors.zero_shot import ZeroShotCompressor
 
 __all__ = [
     "AutoRound",
@@ -35,9 +34,9 @@ __all__ = [
     "DataDrivenCompressor",
     "AutoRoundCompatible",
     "ExtraConfig",
+    "SARConfig",
     "TuningExtraConfig",
     "SchemeExtraConfig",
-    "MLLMExtraConfig",
 ]
 
 
@@ -57,18 +56,18 @@ def __getattr__(name):
         from auto_round.compressors.data_driven import DataDrivenCompressor
 
         return DataDrivenCompressor
-    elif name in ("ExtraConfig", "TuningExtraConfig", "SchemeExtraConfig", "MLLMExtraConfig"):
+    elif name in ("ExtraConfig", "SARConfig", "TuningExtraConfig", "SchemeExtraConfig"):
         from auto_round.compressors.config import (
             ExtraConfig,
-            MLLMExtraConfig,
+            SARConfig,
             SchemeExtraConfig,
             TuningExtraConfig,
         )
 
         return {
             "ExtraConfig": ExtraConfig,
+            "SARConfig": SARConfig,
             "TuningExtraConfig": TuningExtraConfig,
             "SchemeExtraConfig": SchemeExtraConfig,
-            "MLLMExtraConfig": MLLMExtraConfig,
         }[name]
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

@@ -97,7 +97,7 @@ class LazyImport(object):
         try:
             self.module = importlib.import_module(self.module_name)
             mod = getattr(self.module, name)
-        except:
+        except Exception:
             spec = importlib.util.find_spec(str(self.module_name + "." + name))
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
@@ -598,7 +598,13 @@ def _patch_qwen3_omni_moe_talker(model) -> None:
 
 
 auto_gptq = LazyImport("auto_gptq")
-htcore = LazyImport("habana_frameworks.torch.core")
+
+# HPU support removed in this fork; keep htcore as a no-op for import compatibility
+class _NoopHtcore:
+    def __getattr__(self, name):
+        return lambda *a, **kw: None
+
+htcore = _NoopHtcore()
 
 
 class SupportedFormats:

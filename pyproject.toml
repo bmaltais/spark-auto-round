@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "spark-auto-round"
+dynamic = ["version"]
+description = "W4A16 quantization for DGX Spark GB10"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4",
+    "transformers>=4.40",
+    "accelerate",
+    "datasets",
+    "sentencepiece",
+    "protobuf",
+    "numpy",
+    "tqdm",
+    "packaging",
+    "psutil",
+    "cpuinfo",
+    "safetensors",
+    "huggingface_hub",
+    "pydantic",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "gptqmodel",
+    "lm_eval",
+]
+
+[project.scripts]
+spark-auto-round = "auto_round.__main__:run"
+
+[tool.setuptools.dynamic]
+version = {attr = "auto_round.version.__version__"}

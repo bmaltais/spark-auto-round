@@ -84,9 +84,11 @@ class BasicArgumentParser(argparse.ArgumentParser):
                  "offloading to disk. Default: 75.",
         )
         basic.add_argument(
-            "--mllm",
+            "--trust-remote-code",
             action="store_true",
-            help="Force multimodal mode (auto-detected by default).",
+            default=True,
+            help="Trust remote code when loading models (default: True). "
+                 "Disable with --no-trust-remote-code for security.",
         )
 
         tuning = self.add_argument_group("Tuning Arguments")
@@ -187,17 +189,15 @@ def tune(args):
 
     from auto_round import AutoRound
 
-    from auto_round.compressors import (
-        ExtraConfig,
-        MLLMExtraConfig,
-        SchemeExtraConfig,
-        TuningExtraConfig,
-    )
+    from auto_round.compressors.config import SARConfig
 
-    extra_config = ExtraConfig()
+    # Scheme config with hardcoded W4A16 values
+    layer_config = {}
+    if args.layer_config:
+        layer_config = parse_layer_config_arg(args.layer_config)
 
-    # Tuning config with hardcoded values
-    tuning_config = TuningExtraConfig(
+    extra_config = SARConfig(
+        # Tuning
         amp=True,
         disable_opt_rtn=None,
         enable_alg_ext=False,
@@ -210,14 +210,7 @@ def tune(args):
         nblocks=1,
         to_quant_block_names=None,
         scale_dtype="bf16",
-    )
-
-    # Scheme config with hardcoded W4A16 values
-    layer_config = {}
-    if args.layer_config:
-        layer_config = parse_layer_config_arg(args.layer_config)
-
-    scheme_config = SchemeExtraConfig(
+        # Scheme
         bits=4,
         group_size=args.group_size,
         sym=True,
@@ -234,14 +227,6 @@ def tune(args):
         static_kv_dtype=None,
         static_attention_dtype=None,
     )
-
-    mllm_config = MLLMExtraConfig(
-        quant_nontext_module=False, extra_data_dir=None, template=None
-    )
-
-    extra_config.tuning_config = tuning_config
-    extra_config.scheme_config = scheme_config
-    extra_config.mllm_config = mllm_config
 
     # AutoRound with hardcoded values
     autoround = AutoRound(
@@ -266,7 +251,7 @@ def tune(args):
         layer_config=layer_config,
         model_dtype=args.model_dtype,
         momentum=0,
-        trust_remote_code=True,
+        trust_remote_code=args.trust_remote_code,
         rotation_config=None,
         algorithm=None,
         use_meta_device=use_meta_device,

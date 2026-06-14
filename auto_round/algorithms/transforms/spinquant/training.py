@@ -555,7 +555,7 @@ class OrthogonalityMonitor(RotationTrainerCallback):
 
         state["ortho_deviation"] = max_dev
         if max_dev > self.threshold:
-            print(f"  [OrthogonalityMonitor] step={step}  dev={max_dev:.2e}  > {self.threshold}")
+            logger.debug(f"  [OrthogonalityMonitor] step={step}  dev={max_dev:.2e}  > {self.threshold}")
 
 
 class LossLogger(RotationTrainerCallback):
@@ -569,7 +569,7 @@ class LossLogger(RotationTrainerCallback):
         if step % self.log_interval == 0:
             loss = state.get("loss", 0.0)
             avg_loss = state.get("avg_loss", 0.0)
-            print(f"  [LossLogger] step={step}/{args.iters}  loss={loss:.6f}  avg={avg_loss:.6f}")
+            logger.debug(f"  [LossLogger] step={step}/{args.iters}  loss={loss:.6f}  avg={avg_loss:.6f}")
 
 
 class RotationTrainer:

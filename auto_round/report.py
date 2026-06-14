@@ -67,7 +67,7 @@ class QuantizationReport:
         report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3, loss=5.2e-6)
         # At the end:
         report.set_memory_summary(peak_ram_gb=31.25, peak_vram_gb=40.93)
-        report.save("/home/whpthomas/models/Qwen3.5-0.8B")
+        report.save("./output/my-model")
     """
 
     def __init__(

@@ -29,13 +29,9 @@ from auto_round.special_model_handler import _handle_special_model, update_modul
 from auto_round.utils import (
     CpuInfo,
     check_and_mark_quantized_module,
-    diffusion_load_model,
-    is_diffusion_model,
-    is_mllm_model,
     is_moe_model,
     is_moe_model_via_config,
     llm_load_model,
-    mllm_load_model,
     unsupported_meta_device,
 )
 from auto_round.utils.device import _force_trim_malloc
@@ -74,12 +70,8 @@ class ModelContext(BaseContext):
         super().__init__()
         self.quantized = False
         self.is_mllm = False
-        self.is_diffusion = False
         self.is_model_patched = False
         self.is_moe_model = False
-        # Set by CalibCompressor._replace_forward; used by recover_forward to detect
-        # new-arch diffusion mode where positional wrapper must be stripped after caching.
-        self._has_true_orig_forward_set = False
 
         assert model is not None, "model must be provided for ModelContext"
         self.model = model
@@ -93,8 +85,6 @@ class ModelContext(BaseContext):
         self.image_processor = None
         self.pipe = None
 
-        if envs.AR_USE_MODELSCOPE:
-            platform = "model_scope"
         self.platform = platform
         self.model_dtype = model_dtype
         self.trust_remote_code = trust_remote_code
@@ -134,18 +124,7 @@ class ModelContext(BaseContext):
         _force_trim_malloc()
 
     def _load_model(self):
-        if is_mllm_model(self.model, platform=self.platform):
-            self.is_mllm = True
-            if isinstance(self.model, str):
-                self.model, self.processor, self.tokenizer, self.image_processor = mllm_load_model(
-                    self.model, platform=self.platform, device="cpu", model_dtype=self.model_dtype
-                )
-        elif is_diffusion_model(self.model):
-            self.is_diffusion = True
-            self.pipe, self.model = diffusion_load_model(
-                self.model, platform=self.platform, device="cpu", model_dtype=self.model_dtype
-            )
-        elif isinstance(self.model, str):
+        if isinstance(self.model, str):
             config = self.config
             try:
                 if config is None:
@@ -179,10 +158,6 @@ class ModelContext(BaseContext):
                         "Please consider submitting an issue to https://github.com/intel/auto-round/issues"
                     )
 
-            # Reclaim temporary HTTP/config objects from model type detection
-            # and AutoConfig loading before the large model allocation.  This
-            # reduces heap fragmentation especially on HPU where habana internal
-            # allocations amplify fragmentation into persistent RSS growth.
             gc.collect()
             _force_trim_malloc()
 
@@ -197,7 +172,7 @@ class ModelContext(BaseContext):
                 model_dtype=self.model_dtype,
                 trust_remote_code=self.trust_remote_code,
             )
-        elif self.tokenizer is None and not self.is_diffusion and self.need_calib:
+        elif self.tokenizer is None and self.need_calib:
             raise ValueError("A tokenizer must be set for non-str model input")
 
         self._model_loaded = True
@@ -235,8 +210,6 @@ class ModelContext(BaseContext):
         self.amp_dtype = torch.bfloat16
         if self.model.dtype != torch.float32:
             self.amp_dtype = self.model.dtype
-        if self.device == "cpu" or "hpu" in self.device:
-            self.amp_dtype = torch.bfloat16
         if self.amp:
             if self.device == "cpu" and not CpuInfo().bf16:
                 self.amp = False
@@ -296,38 +269,17 @@ class ModelContext(BaseContext):
         Args:
             restore_positional_wrapper: If True, restores forward to the wrapped version
                 (needed for LLM calibration where positional wrapper is used during quantization).
-                If False, restores to the true original forward (needed for diffusion).
-                If None (default), auto-detects: uses False for diffusion models.
+                If None (default), always uses wrapped version (LLM-only fork).
         """
         assert self._init_model, "should load and initialize model first"
 
-        # Auto-detect for diffusion: when _true_orig_forward is present (set by
-        # CalibCompressor._replace_forward), we are in new-arch diffusion mode where
-        # the positional wrapper must be fully removed after caching.
-        if restore_positional_wrapper is None:
-            restore_positional_wrapper = not getattr(self, "_has_true_orig_forward_set", False)
-            if not restore_positional_wrapper:
-                logger.debug("recover_forward: auto-detected diffusion mode, stripping positional wrapper")
+        restore_positional_wrapper = True  # LLM-only fork: always restore wrapped version
 
         for n, m in self.model.named_modules():
             if hasattr(m, "orig_forward"):
                 true_orig = getattr(m, "_true_orig_forward", m.orig_forward)
-                if restore_positional_wrapper:
-                    # Restore orig_forward so that any wrapper (e.g. from
-                    # wrap_block_forward_positional_to_kwargs) can still access it.
-                    # The wrapper holds a closure reference to orig_forward.
-                    m.forward = getattr(m, "_wrapped_forward_before_replace", m.orig_forward)
-                    m.orig_forward = true_orig
-                else:
-                    # Full recovery: restore the true original forward.  Used for diffusion
-                    # where the positional wrapper must be fully removed after caching.
-                    m.forward = true_orig
-                    # Keep _true_orig_forward so the wrapped forward's base_hook can
-                    # still call it during quantization tuning.
-                    m._true_orig_forward = true_orig
-                    delattr(m, "orig_forward")
-                    if hasattr(m, "_wrapped_forward_before_replace"):
-                        delattr(m, "_wrapped_forward_before_replace")
+                m.forward = getattr(m, "_wrapped_forward_before_replace", m.orig_forward)
+                m.orig_forward = true_orig
         for hook_handle in self.hook_handles:
             hook_handle.remove()
         self.hook_handles = []

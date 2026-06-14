@@ -52,7 +52,6 @@ from auto_round.utils import (
     get_block_names,
     get_reverse_checkpoint_conversion_mapping,
     is_debug_mode,
-    is_hpex_available,
     is_quantized_input_module,
     memory_monitor,
     preserve_original_visual_block_name,
@@ -61,7 +60,6 @@ from auto_round.utils import (
 from auto_round.utils.device import (
     _force_trim_malloc,
     get_major_device,
-    patch_xpu_sdpa_drop_causal_mask,
     set_non_auto_device_map,
 )
 from auto_round.utils.offload import OffloadManager
@@ -262,11 +260,6 @@ class BaseCompressor(object):
         else:
             torch.use_deterministic_algorithms(True, warn_only=True)
 
-        # XPU SDPA workaround: drop pure causal masks so FLASH backend is used,
-        # and set torch.use_deterministic_algorithms(False)
-        # instead of MATH (avoids ~10x peak-VRAM blow-up during block tuning).
-        patch_xpu_sdpa_drop_causal_mask()
-
         # Tuning hyperparameters
         self.seed = seed
         set_seed(self.seed)
@@ -279,10 +272,6 @@ class BaseCompressor(object):
         # Managed via self.compress_context.is_immediate_packing / is_immediate_saving
 
         torch.set_printoptions(precision=3, sci_mode=True)
-
-        if is_hpex_available():
-            logger.info("habana_frameworks is available, import htcore explicitly.")
-            import habana_frameworks.torch.core as htcore  # pylint: disable=E0401
 
         # Reset both context singletons before creating fresh instances so that
         # consecutive AutoRound creations don't inherit stale config from earlier ones.
@@ -483,8 +472,9 @@ class BaseCompressor(object):
         cfg = self.quantize_config
         is_raw_fp8, is_raw_nv_fp, _ = self._get_torch_compile_guard_state()
 
-        # On HPU, we rely on torch.compile to speed up the model execution.
-        if self.enable_torch_compile and is_raw_fp8 and not is_hpex_available():
+        # FP8 is not used by W4A16; this guard is a no-op for this fork.
+        # Kept for upstream compatibility.
+        if self.enable_torch_compile and is_raw_fp8:
             self.enable_torch_compile = False
             logger.warning_once("reset enable_torch_compile to `False` as fp8 is enabled")
         # super_group_size = getattr(cfg, "super_group_size", None)

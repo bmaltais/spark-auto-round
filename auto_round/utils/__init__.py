@@ -16,6 +16,7 @@ from auto_round.utils.device import *
 from auto_round.utils.common import *
 from auto_round.utils.model import *
 from auto_round.utils.weight_handler import (
+    check_and_mark_quantized_module,
     convert_module_to_hp_if_necessary,
     detect_weight_type,
     is_quantized_input_module,
