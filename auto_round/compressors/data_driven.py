@@ -391,7 +391,7 @@ class DataDrivenCompressor(BaseCompressor):
 
             # ── Pure algorithm: delegates to quantizer ────────────────────────────
             mid_iter_mem_check = self.compress_context.low_gpu_mem_usage and card_0_in_high_risk
-            self.quantizer.quantize_block(
+            _tune_result = self.quantizer.quantize_block(
                 block,
                 input_ids,
                 input_others,
@@ -541,7 +541,7 @@ class DataDrivenCompressor(BaseCompressor):
 
             # ── Pure algorithm: delegates to quantizer ────────────────────────
             mid_iter_mem_check = self.compress_context.low_gpu_mem_usage and card_0_in_high_risk
-            self.quantizer.quantize_block(
+            _tune_result = self.quantizer.quantize_block(
                 m,
                 input_ids,
                 input_others,
@@ -600,12 +600,22 @@ class DataDrivenCompressor(BaseCompressor):
             # ── Sensitivity metrics ───────────────────────────────────────────
             if q_input is not None and hasattr(self, '_display') and self._display is not None:
                 cos_sim, psnr_db = compute_block_sensitivity(reference_output, q_input)
-                # TODO: quantizer doesn't yet expose per-block loss; use 0.0 placeholder
-                loss = 0.0
                 block_label = n if nblocks == 1 else f"[{i+1}-{min(i+nblocks, len(block_names))}]/{len(block_names)}"
-                self._display.print_sensitivity(block_label, cos_sim, psnr_db, loss)
+                self._display.print_sensitivity(
+                    block_label, cos_sim, psnr_db,
+                    init_loss=_tune_result.get("init_loss"),
+                    best_loss=_tune_result.get("best_loss"),
+                    best_iter=_tune_result.get("best_iter", 0),
+                    total_iters=_tune_result.get("total_iters", 0),
+                )
                 if hasattr(self, '_report') and self._report is not None:
-                    self._report.add_layer(block_label, cos_sim, psnr_db, loss)
+                    self._report.add_layer(
+                        block_label, cos_sim, psnr_db,
+                        init_loss=_tune_result.get("init_loss"),
+                        best_loss=_tune_result.get("best_loss"),
+                        best_iter=_tune_result.get("best_iter", 0),
+                        total_iters=_tune_result.get("total_iters", 0),
+                    )
 
 
         if not self.compress_context.is_immediate_saving:

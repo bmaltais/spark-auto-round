@@ -115,9 +115,11 @@ class TestCLIDisplay:
         try:
             display.begin()
             assert display._blocks_done == 0
-            display.print_sensitivity("model.layers.0", 0.9998, 52.3, 5.2e-6)
+            display.print_sensitivity("model.layers.0", 0.9998, 52.3,
+                                     init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
             assert display._blocks_done == 1
-            display.print_sensitivity("model.layers.1", 0.9870, 50.1, 8.0e-6)
+            display.print_sensitivity("model.layers.1", 0.9870, 50.1,
+                                     init_loss=1.0e-5, best_loss=8.0e-6, best_iter=800, total_iters=1000)
             assert display._blocks_done == 2
         finally:
             sys.stdout = old_stdout
@@ -133,12 +135,16 @@ class TestCLIDisplay:
         try:
             display = CLIDisplay(total_blocks=4)
             display.begin()
-            display.print_sensitivity("model.layers.0", 0.9998, 52.3, 5.2e-6)
+            display.print_sensitivity("model.layers.0", 0.9998, 52.3,
+                                     init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
             output = sys.stdout.getvalue()
             assert "🟢" in output
             assert "model.layers.0" in output
             assert "Cosine similarity 0.9998" in output
             assert "Peak Signal-to-Noise Ratio 52.3" in output
+            assert "loss" in output
+            assert "→" in output
+            assert "iter 950/1000" in output
         finally:
             sys.stdout = old_stdout
             Colors.ENABLED = old_enabled
@@ -154,7 +160,8 @@ class TestCLIDisplay:
         try:
             display = CLIDisplay(total_blocks=4)
             display.begin()
-            display.print_sensitivity("model.layers.1", 0.9870, 50.1, 8.0e-6)
+            display.print_sensitivity("model.layers.1", 0.9870, 50.1,
+                                     init_loss=1.0e-5, best_loss=8.0e-6, best_iter=800, total_iters=1000)
             output = sys.stdout.getvalue()
             assert "🟠" in output
         finally:
@@ -173,7 +180,8 @@ class TestCLIDisplay:
             display = CLIDisplay(total_blocks=2)
             display.begin()
             # cos_sim below 0.99, psnr above 45
-            display.print_sensitivity("model.layers.0", 0.9800, 52.0, 1.0e-5)
+            display.print_sensitivity("model.layers.0", 0.9800, 52.0,
+                                     init_loss=2.0e-5, best_loss=1.0e-5, best_iter=700, total_iters=1000)
             output = sys.stdout.getvalue()
             assert "🟠" in output
         finally:
@@ -192,7 +200,8 @@ class TestCLIDisplay:
             display = CLIDisplay(total_blocks=2)
             display.begin()
             # cos_sim above 0.99, psnr below 45
-            display.print_sensitivity("model.layers.0", 0.9998, 42.0, 1.0e-5)
+            display.print_sensitivity("model.layers.0", 0.9998, 42.0,
+                                     init_loss=2.0e-5, best_loss=1.0e-5, best_iter=700, total_iters=1000)
             output = sys.stdout.getvalue()
             assert "🟠" in output
         finally:
@@ -210,7 +219,8 @@ class TestCLIDisplay:
         try:
             display = CLIDisplay(total_blocks=2)
             display.begin()
-            display.print_sensitivity("model.layers.0", 1.0, float("inf"), 0.0)
+            display.print_sensitivity("model.layers.0", 1.0, float("inf"),
+                                     init_loss=0.0, best_loss=0.0, best_iter=0, total_iters=0)
             output = sys.stdout.getvalue()
             assert "∞" in output
         finally:
@@ -228,8 +238,10 @@ class TestCLIDisplay:
         try:
             display = CLIDisplay(total_blocks=2)
             display.begin()
-            display.print_sensitivity("model.layers.0", 0.9998, 52.3, 5.2e-6)
-            display.print_sensitivity("model.layers.1", 0.9990, 52.0, 1.0e-5)
+            display.print_sensitivity("model.layers.0", 0.9998, 52.3,
+                                     init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
+            display.print_sensitivity("model.layers.1", 0.9990, 52.0,
+                                     init_loss=2.0e-5, best_loss=1.0e-5, best_iter=700, total_iters=1000)
             display.end(peak_ram_gb=31.25, peak_vram_gb=40.93)
             output = sys.stdout.getvalue()
             assert "Quantization complete" in output
@@ -251,7 +263,8 @@ class TestCLIDisplay:
         try:
             display = CLIDisplay(total_blocks=1)
             display.begin()
-            display.print_sensitivity("model.layers.0", 0.9998, 52.3, 5.2e-6)
+            display.print_sensitivity("model.layers.0", 0.9998, 52.3,
+                                     init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
             display.end()
             output = sys.stdout.getvalue()
             # Check last line specifically (end() output), not the full output
@@ -273,7 +286,8 @@ class TestCLIDisplay:
         try:
             display = CLIDisplay(total_blocks=1)
             display.begin()
-            display.print_sensitivity("model.layers.0", 0.9998, 52.3, 5.2e-6)
+            display.print_sensitivity("model.layers.0", 0.9998, 52.3,
+                                     init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
             display.end(peak_ram_gb=16.0)
             output = sys.stdout.getvalue()
             assert "Quantization complete" in output
@@ -294,7 +308,8 @@ class TestCLIDisplay:
         try:
             display = CLIDisplay(total_blocks=1)
             display.begin()
-            display.print_sensitivity("model.layers.0", 0.9998, 52.3, 5.2e-6)
+            display.print_sensitivity("model.layers.0", 0.9998, 52.3,
+                                     init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
             display.end(peak_vram_gb=40.93)
             output = sys.stdout.getvalue()
             # Check last line specifically (end() output)
@@ -337,9 +352,12 @@ class TestCLIDisplay:
         try:
             display = CLIDisplay(total_blocks=3)
             display.begin()
-            display.print_sensitivity("model.layers.0", 0.9998, 52.3, 5.2e-6)
-            display.print_sensitivity("model.layers.1", 0.9870, 50.1, 8.0e-6)
-            display.print_sensitivity("model.layers.2", 0.9990, 52.0, 1.0e-5)
+            display.print_sensitivity("model.layers.0", 0.9998, 52.3,
+                                     init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
+            display.print_sensitivity("model.layers.1", 0.9870, 50.1,
+                                     init_loss=1.0e-5, best_loss=8.0e-6, best_iter=800, total_iters=1000)
+            display.print_sensitivity("model.layers.2", 0.9990, 52.0,
+                                     init_loss=2.0e-5, best_loss=1.0e-5, best_iter=700, total_iters=1000)
             display.end()
             output = sys.stdout.getvalue()
             # Check all sensitivity lines present
@@ -384,7 +402,8 @@ class TestCLIDisplay:
         try:
             display = CLIDisplay(total_blocks=1)
             display.begin()
-            display.print_sensitivity("model.layers.0", 0.9998, 52.3, 5.2e-6)
+            display.print_sensitivity("model.layers.0", 0.9998, 52.3,
+                                     init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
             display.end()
             output = sys.stdout.getvalue()
             assert "🟢 model.layers.0" in output
@@ -409,7 +428,10 @@ class TestCLIDisplay:
                     f"model.language_model.layers.{i}",
                     0.9998,
                     52.3,
-                    5.2e-6,
+                    init_loss=8.0e-6,
+                    best_loss=5.2e-6,
+                    best_iter=950,
+                    total_iters=1000,
                 )
             display.end()
             output = sys.stdout.getvalue()
@@ -432,7 +454,8 @@ class TestCLIDisplay:
         try:
             display = CLIDisplay(total_blocks=1)
             display.begin()
-            display.print_sensitivity("model.layers.0", 1.0, 0.0, 0.0)
+            display.print_sensitivity("model.layers.0", 1.0, 0.0,
+                                     init_loss=0.0, best_loss=0.0, best_iter=0, total_iters=0)
             output = sys.stdout.getvalue()
             assert "Peak Signal-to-Noise Ratio 0.0" in output
         finally:

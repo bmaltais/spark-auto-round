@@ -165,8 +165,14 @@ class SignRoundQuantizer(BaseQuantizers):
                 fragmentation on the primary GPU.
 
         Returns:
-            best_params: Best quantization parameters found during optimization.
-                Empty dict if no trainable parameters were found.
+            dict with keys:
+                "best_params": Best quantization parameters found during optimization.
+                    Empty dict if no trainable parameters were found.
+                "init_loss": Loss at iteration 0 (or None if no iterations run).
+                "best_loss": Best loss achieved across all iterations.
+                "best_iter": Iteration at which best loss was achieved.
+                "total_iters": Total iterations actually run (may be less than
+                    ``self.iters`` due to early stopping via ``dynamic_max_gap``).
         """
         device = self.compress_context.device
 
@@ -217,7 +223,7 @@ class SignRoundQuantizer(BaseQuantizers):
             )
             logger.info(dump_info)
             unwrapper_block(block, {})
-            return {}
+            return {"best_params": {}, "init_loss": None, "best_loss": None, "best_iter": 0, "total_iters": 0}
 
         if self.lr_scheduler is None:
             lr_schedule = torch.optim.lr_scheduler.LinearLR(
@@ -316,12 +322,21 @@ class SignRoundQuantizer(BaseQuantizers):
         with torch.no_grad():
             unwrapper_block(block, best_params)
 
+        actual_iters = best_iter + 1 if not self.not_use_best_mse else self.iters
+        result = {
+            "best_params": best_params,
+            "init_loss": init_loss,
+            "best_loss": last_loss,
+            "best_iter": best_iter,
+            "total_iters": actual_iters,
+        }
+
         if self.config.is_act_nv_fp:
             # enable moe experts act_max automatic generation for WrapperWALayer
             set_amax_for_all_moe_layers(block, attr_name="orig_layer.act_max")
 
         logger.infoclean(dump_info)
-        return best_params
+        return result
 
     def quantize_layer_outside_block(
         self,

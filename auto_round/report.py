@@ -36,14 +36,20 @@ class LayerResult:
         block_name: Full block name (e.g. ``"model.layers.0"``).
         cosine_sim: Cosine similarity between reference and quantized output.
         psnr_db: Peak Signal-to-Noise Ratio in dB.
-        loss: Final tuning loss (from quantizer).
+        init_loss: Loss at the first tuning iteration (``None`` if no tuning).
+        best_loss: Best loss achieved across all tuning iterations.
+        best_iter: Iteration at which best loss was achieved.
+        total_iters: Total iterations actually run.
         passed: Whether both metrics exceed thresholds.
     """
 
     block_name: str
     cosine_sim: float
     psnr_db: float
-    loss: float
+    init_loss: float | None
+    best_loss: float | None
+    best_iter: int
+    total_iters: int
     passed: bool
 
 
@@ -82,7 +88,10 @@ class QuantizationReport:
         block_name: str,
         cosine_sim: float,
         psnr_db: float,
-        loss: float,
+        init_loss: float | None = None,
+        best_loss: float | None = None,
+        best_iter: int = 0,
+        total_iters: int = 0,
     ) -> None:
         """Record metrics for a completed block.
 
@@ -90,7 +99,10 @@ class QuantizationReport:
             block_name: Full block name (e.g. ``"model.layers.0"``).
             cosine_sim: Cosine similarity between reference and quantized output.
             psnr_db: Peak Signal-to-Noise Ratio in dB.
-            loss: Final tuning loss from the quantizer.
+            init_loss: Loss at the first tuning iteration.
+            best_loss: Best loss achieved across all tuning iterations.
+            best_iter: Iteration at which best loss was achieved.
+            total_iters: Total iterations actually run.
         """
         passed = cosine_sim >= COSINE_SIM_THRESHOLD and psnr_db >= PSNR_THRESHOLD
         self.layers.append(
@@ -98,7 +110,10 @@ class QuantizationReport:
                 block_name=block_name,
                 cosine_sim=cosine_sim,
                 psnr_db=psnr_db,
-                loss=loss,
+                init_loss=init_loss,
+                best_loss=best_loss,
+                best_iter=best_iter,
+                total_iters=total_iters,
                 passed=passed,
             )
         )
@@ -147,6 +162,15 @@ class QuantizationReport:
         """Return emoji icon for pass/warn status."""
         return "🟢" if passed else "🟠"
 
+    @staticmethod
+    def _fmt_loss(value: float) -> str:
+        """Format a loss value for display."""
+        if value == 0:
+            return "0"
+        if value < 0.001:
+            return f"{value:.2e}"
+        return f"{value:.6f}"
+
     def _format_report(self) -> list[str]:
         """Build the full report as a list of lines."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -181,7 +205,7 @@ class QuantizationReport:
         lines.append("Sensitivity Analysis:")
         header = (
             f"{'Layer':<42} {'Cosine Sim':>10} {'PSNR (dB)':>10} "
-            f"{'Loss':>10} {'Status':>8}"
+            f"{'Iters':>10} {'Loss':>18} {'Status':>8}"
         )
         separator = "─" * len(header)
         lines.append(separator)
@@ -192,16 +216,24 @@ class QuantizationReport:
             icon = self._status_icon(lr.passed)
             status = "PASS" if lr.passed else "WARN"
             psnr_str = f"{lr.psnr_db:.1f}" if lr.psnr_db != float("inf") else "∞"
-            if lr.loss == 0:
-                loss_str = "0"
-            elif lr.loss < 0.001:
-                loss_str = f"{lr.loss:.0e}"
+
+            # Iters column
+            if lr.total_iters > 0:
+                iters_str = f"{lr.best_iter}/{lr.total_iters}"
             else:
-                loss_str = f"{lr.loss:.1e}"
+                iters_str = "—"
+
+            # Loss column: "init → best" or single value or dash
+            if lr.init_loss is not None and lr.best_loss is not None:
+                loss_str = f"{self._fmt_loss(lr.init_loss)} → {self._fmt_loss(lr.best_loss)}"
+            elif lr.best_loss is not None:
+                loss_str = self._fmt_loss(lr.best_loss)
+            else:
+                loss_str = "—"
 
             lines.append(
                 f"{icon} {lr.block_name:<40} {lr.cosine_sim:>10.4f} "
-                f"{psnr_str:>10} {loss_str:>10} {status:>8}"
+                f"{psnr_str:>10} {iters_str:>10} {loss_str:>18} {status:>8}"
             )
 
         lines.append("")

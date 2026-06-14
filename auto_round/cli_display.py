@@ -99,7 +99,10 @@ class CLIDisplay:
         block_name: str,
         cos_sim: float,
         psnr_db: float,
-        loss: float,
+        init_loss: float | None = None,
+        best_loss: float | None = None,
+        best_iter: int = 0,
+        total_iters: int = 0,
     ) -> None:
         """Print a color-coded sensitivity line for a completed block.
 
@@ -110,7 +113,10 @@ class CLIDisplay:
             block_name: Full block name (e.g. ``"model.language_model.layers.0"``).
             cos_sim: Cosine similarity between reference and quantized output.
             psnr_db: Peak Signal-to-Noise Ratio in dB.
-            loss: Final tuning loss.
+            init_loss: Loss at the first tuning iteration.
+            best_loss: Best loss achieved across all tuning iterations.
+            best_iter: Iteration at which best loss was achieved.
+            total_iters: Total iterations actually run.
         """
         self._blocks_done += 1
 
@@ -121,12 +127,22 @@ class CLIDisplay:
         # Format PSNR
         psnr_str = f"{psnr_db:.1f}" if psnr_db != float("inf") else "∞"
 
+        # Format loss info
+        loss_parts = []
+        if init_loss is not None and best_loss is not None and total_iters > 0:
+            loss_parts.append(f"loss {self._fmt_loss(init_loss)} → {self._fmt_loss(best_loss)}")
+            loss_parts.append(f"iter {best_iter}/{total_iters}")
+        elif best_loss is not None:
+            loss_parts.append(f"loss {self._fmt_loss(best_loss)}")
+
         # Build the sensitivity line
-        sensitivity_line = (
-            f"{icon} {block_name} | "
-            f"Cosine similarity {cos_sim:.4f} | "
-            f"Peak Signal-to-Noise Ratio {psnr_str}"
-        )
+        parts = [
+            f"{icon} {block_name}",
+            f"Cosine similarity {cos_sim:.4f}",
+            f"Peak Signal-to-Noise Ratio {psnr_str}",
+        ]
+        parts.extend(loss_parts)
+        sensitivity_line = " | ".join(parts)
 
         if Colors.ENABLED:
             # Print sensitivity line
@@ -137,7 +153,7 @@ class CLIDisplay:
             sys.stdout.flush()
         else:
             # Non-TTY: just print
-            println(sensitivity_line)
+            print(sensitivity_line)
 
         # Print next block's progress bar
         if self._blocks_done < self._total_blocks:
@@ -145,6 +161,15 @@ class CLIDisplay:
             self._print_progress(next_block)
         else:
             self._print_done()
+
+    @staticmethod
+    def _fmt_loss(value: float) -> str:
+        """Format a loss value for display."""
+        if value == 0:
+            return "0"
+        if value < 0.001:
+            return f"{value:.2e}"
+        return f"{value:.6f}"
 
     def update_progress(self, block_name: str) -> None:
         """Update the progress bar description (for compatibility).
@@ -224,7 +249,7 @@ class CLIDisplay:
             sys.stdout.write(line + _NEW_LINE)
             sys.stdout.flush()
         else:
-            println(line)
+            print(line)
 
         self._progress_printed = True
 
@@ -238,7 +263,7 @@ class CLIDisplay:
             sys.stdout.write(line + _NEW_LINE)
             sys.stdout.flush()
         else:
-            println(line)
+            print(line)
 
     @staticmethod
     def _format_time(seconds: float) -> str:

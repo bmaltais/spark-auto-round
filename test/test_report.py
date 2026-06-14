@@ -13,38 +13,49 @@ class TestQuantizationReport:
         """Layer above thresholds → passed=True."""
         from auto_round.report import QuantizationReport
         report = QuantizationReport(model_name="test", version="0.14.0")
-        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3, loss=5.2e-6)
+        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3,
+                         init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
         assert len(report.layers) == 1
         assert report.layers[0].passed is True
+        assert report.layers[0].init_loss == 8.0e-6
+        assert report.layers[0].best_loss == 5.2e-6
+        assert report.layers[0].best_iter == 950
+        assert report.layers[0].total_iters == 1000
 
     def test_add_layer_warn_cosine(self):
         """Cosine below threshold → passed=False."""
         from auto_round.report import QuantizationReport
         report = QuantizationReport(model_name="test", version="0.14.0")
-        report.add_layer("model.layers.1", cosine_sim=0.9870, psnr_db=50.1, loss=8.0e-6)
+        report.add_layer("model.layers.1", cosine_sim=0.9870, psnr_db=50.1,
+                         init_loss=1.0e-5, best_loss=8.0e-6, best_iter=800, total_iters=1000)
         assert report.layers[0].passed is False
 
     def test_add_layer_warn_psnr(self):
         """PSNR below threshold → passed=False."""
         from auto_round.report import QuantizationReport
         report = QuantizationReport(model_name="test", version="0.14.0")
-        report.add_layer("model.layers.2", cosine_sim=0.9990, psnr_db=42.0, loss=1.0e-5)
+        report.add_layer("model.layers.2", cosine_sim=0.9990, psnr_db=42.0,
+                         init_loss=2.0e-5, best_loss=1.0e-5, best_iter=700, total_iters=1000)
         assert report.layers[0].passed is False
 
     def test_add_layer_both_below(self):
         """Both below threshold → passed=False."""
         from auto_round.report import QuantizationReport
         report = QuantizationReport(model_name="test", version="0.14.0")
-        report.add_layer("model.layers.3", cosine_sim=0.95, psnr_db=30.0, loss=0.01)
+        report.add_layer("model.layers.3", cosine_sim=0.95, psnr_db=30.0,
+                         init_loss=0.02, best_loss=0.01, best_iter=500, total_iters=1000)
         assert report.layers[0].passed is False
 
     def test_get_summary(self):
         """Summary counts are correct."""
         from auto_round.report import QuantizationReport
         report = QuantizationReport(model_name="test", version="0.14.0")
-        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3, loss=5.2e-6)
-        report.add_layer("model.layers.1", cosine_sim=0.9870, psnr_db=50.1, loss=8.0e-6)
-        report.add_layer("model.layers.2", cosine_sim=0.9990, psnr_db=52.0, loss=1.0e-5)
+        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3,
+                         init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
+        report.add_layer("model.layers.1", cosine_sim=0.9870, psnr_db=50.1,
+                         init_loss=1.0e-5, best_loss=8.0e-6, best_iter=800, total_iters=1000)
+        report.add_layer("model.layers.2", cosine_sim=0.9990, psnr_db=52.0,
+                         init_loss=2.0e-5, best_loss=1.0e-5, best_iter=700, total_iters=1000)
         summary = report.get_summary()
         assert summary["total"] == 3
         assert summary["passed"] == 2
@@ -54,7 +65,8 @@ class TestQuantizationReport:
         """Report saves to quantization-report.txt."""
         from auto_round.report import QuantizationReport
         report = QuantizationReport(model_name="Qwen/Qwen3.5-0.8B", version="0.14.0")
-        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3, loss=5.2e-6)
+        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3,
+                         init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
         report.set_memory_summary(peak_ram_gb=31.25, peak_vram_gb=40.93)
         path = report.save(str(tmp_path))
         assert path.exists()
@@ -73,8 +85,10 @@ class TestQuantizationReport:
             version="0.14.0",
             cli_args={"batch_size": 8, "iters": 1000, "scheme": "W4A16"},
         )
-        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3, loss=5.2e-6)
-        report.add_layer("model.layers.1", cosine_sim=0.9870, psnr_db=50.1, loss=8.0e-6)
+        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3,
+                         init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
+        report.add_layer("model.layers.1", cosine_sim=0.9870, psnr_db=50.1,
+                         init_loss=1.0e-5, best_loss=8.0e-6, best_iter=800, total_iters=1000)
         report.set_memory_summary(peak_ram_gb=31.25, peak_vram_gb=40.93)
         path = report.save(str(tmp_path))
         content = path.read_text()
@@ -94,8 +108,10 @@ class TestQuantizationReport:
         """Correct emoji icons in report."""
         from auto_round.report import QuantizationReport
         report = QuantizationReport(model_name="test", version="0.14.0")
-        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3, loss=5.2e-6)
-        report.add_layer("model.layers.1", cosine_sim=0.9870, psnr_db=50.1, loss=8.0e-6)
+        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3,
+                         init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
+        report.add_layer("model.layers.1", cosine_sim=0.9870, psnr_db=50.1,
+                         init_loss=1.0e-5, best_loss=8.0e-6, best_iter=800, total_iters=1000)
         path = report.save(str(tmp_path))
         content = path.read_text()
         lines = content.split("\n")
@@ -110,7 +126,8 @@ class TestQuantizationReport:
         """Perfect reconstruction → inf PSNR displayed as ∞."""
         from auto_round.report import QuantizationReport
         report = QuantizationReport(model_name="test", version="0.14.0")
-        report.add_layer("model.layers.0", cosine_sim=1.0, psnr_db=float("inf"), loss=0.0)
+        report.add_layer("model.layers.0", cosine_sim=1.0, psnr_db=float("inf"),
+                         init_loss=0.0, best_loss=0.0, best_iter=0, total_iters=0)
         path = report.save(str(tmp_path))
         content = path.read_text()
         assert "∞" in content
@@ -128,7 +145,8 @@ class TestQuantizationReport:
         """Report without memory summary still valid."""
         from auto_round.report import QuantizationReport
         report = QuantizationReport(model_name="test", version="0.14.0")
-        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3, loss=5.2e-6)
+        report.add_layer("model.layers.0", cosine_sim=0.9998, psnr_db=52.3,
+                         init_loss=8.0e-6, best_loss=5.2e-6, best_iter=950, total_iters=1000)
         path = report.save(str(tmp_path))
         content = path.read_text()
         assert "(not available)" in content
