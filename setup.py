@@ -29,7 +29,6 @@ setup(
     entry_points={
         "console_scripts": [
             "spark-auto-round=auto_round.__main__:run",
-            "spark-asqa-substitute=auto_round.asqa.__main__:run",
         ],
     },
 )
