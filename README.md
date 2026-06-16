@@ -55,6 +55,10 @@ spark-auto-round <model>
 
 The quantized model is saved to `./models/{model}-int4-AutoRound` by default. For example, quantizing `Qwen/Qwen3.6-27B` produces `./models/Qwen3.6-27B-int4-AutoRound/`.
 
+## Iteratively optimized using Qwen 3.5 0.8b
+
+The dense *Qwen 3.5 0.8B* model was used as a testbed to optimize Spark Auto Round (SAR). Using this [test setup and methodology](docs/optimization.md) we achieved Tool Eval Bench score parity with the unquantized bf16 model. While these results are encouraging, they only demonstrate that for one 0.8B model, optimal settings were found that achieved test score parity with the original bf16 model. Whether these optimal settings generalize to other models requires further research and is under active investigation.
+
 ## Performance with Qwen 3.6 27b
 
 Spark auto round repeatedly achieved a [92/100](docs/test-score.md) tool-eval-bench score with the Nvidia's OpenCode Instruct dataset.
@@ -116,11 +120,21 @@ docker run -it --name vllm-qwen36 \
 docker container remove vllm-qwen36
 ```
 
-**NOTE:** Use `--no-enable-prefix-caching` with `mtp` speculative decoding. 
+- `NVIDIA_FORWARD_COMPAT=1` Instructs the NVIDIA container use newer CUDA toolkit user-space library.
+- `NVIDIA_DISABLE_REQUIRE=1` Ignore rigid cuda>=12.x mismatch errors on the sm_121 Spark hardware.
+- `VLLM_USE_FLASHINFER_SAMPLER=1`  improve throughput by sampling natively on the GPU.
+- `FLASHINFER_DISABLE_VERSION_CHECK=1`  prevent FlashInfer from intentionally crashing due to non-standard build version strings.
+- `TORCH_MATMUL_PRECISION=high` faster linear layers during the prefill phase without sacrificing overall model accuracy.
+- `VLLM_MARLIN_USE_ATOMIC_ADD=1` ensure the tensor parallelism with unified memory and GPTQ 4-bit model weights
 
-## Iterative optimization using Qwen 3.5 0.8b
+**NOTE:** Prefix caching and speculative decoding appear to be incompatible and result in poor test scores. However prefix caching greatly improves latency and time to first token. To achieve the recorded benchmark scores I used `--no-enable-prefix-caching` with `mtp` and `dflash` speculative decoding. For production workloads I really need prefix caching enabled so I omit `--speculative-config`.
 
-The dense *Qwen 3.5 0.8B* model was used as a testbed to optimize Spark Auto Round (SAR). Using this [test setup and methodology](docs/optimization.md) we achieved Tool Eval Bench score parity with the unquantized bf16 model. While these results are encouraging, they only demonstrate that for one 0.8B model, optimal settings were found that achieved test score parity with the original bf16 model. Whether these optimal settings generalize to other models requires further research and is under active investigation.
+**IMPORTANT!**
+
+Download [chat-template-fix](https://github.com/allanchan339/vLLM-Qwen3-3.5-3.6-chat-template-fix) for Qwen 3.5 and 3.6 to `./models/`
+
+- [./models/qwen3.6-enhanced.jinja](https://github.com/allanchan339/vLLM-Qwen3-3.5-3.6-chat-template-fix/blob/main/chat-template/qwen3.6-enhanced.jinja)
+- [./models/qwen3.5-enhanced.jinja](https://github.com/allanchan339/vLLM-Qwen3-3.5-3.6-chat-template-fix/blob/main/chat-template/qwen3.5-enhanced.jinja)
 
 ### Examples
 
@@ -264,3 +278,4 @@ Based on [auto-round](https://github.com/intel/auto-round) by Intel.
 - [auto-round](https://github.com/intel/auto-round) - *Advanced quantization toolkit designed for Large Language Models*
 - [spark-vllm-docker](https://github.com/eugr/spark-vllm-docker) - *Docker configuration and startup scripts to run vLLM on DGX Spark*
 - [tool-eval-bench](https://github.com/SeraphimSerapis/tool-eval-bench/) - *A tool-calling quality benchmark for evaluating LLM tool-use in agentic workflows*
+- [chat-template-fix](https://github.com/allanchan339/vLLM-Qwen3-3.5-3.6-chat-template-fix) - *Stable tool calling with enhanced chat template*

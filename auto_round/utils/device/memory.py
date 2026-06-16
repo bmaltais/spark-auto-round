@@ -15,6 +15,7 @@
 import ctypes
 import gc
 import os
+from contextlib import contextmanager
 from threading import Lock
 
 import psutil
@@ -227,6 +228,7 @@ def _estimate_param_count_from_config(config) -> int:
     intermediate_size = (
         getattr(config, "intermediate_size", None)
         or getattr(config, "ffn_dim", None)
+        or getattr(config, "moe_intermediate_size", None)
     )
 
     if hidden_size is None or intermediate_size is None:
@@ -239,6 +241,7 @@ def _estimate_param_count_from_config(config) -> int:
                 intermediate_size
                 or getattr(text_cfg, "intermediate_size", None)
                 or getattr(text_cfg, "ffn_dim", None)
+                or getattr(text_cfg, "moe_intermediate_size", None)
             )
 
     if hidden_size is None or intermediate_size is None:
@@ -252,6 +255,10 @@ def _estimate_param_count_from_config(config) -> int:
     block_params = 4 * hidden_size * hidden_size + 3 * hidden_size * intermediate_size
 
     num_experts = getattr(config, "num_local_experts", None) or getattr(config, "num_experts", None)
+    if not num_experts:
+        text_cfg = getattr(config, "text_config", None)
+        if text_cfg is not None:
+            num_experts = getattr(text_cfg, "num_local_experts", None) or getattr(text_cfg, "num_experts", None)
     if num_experts and num_experts > 1:
         mlp_params = 3 * hidden_size * intermediate_size
         block_params = 4 * hidden_size * hidden_size + mlp_params * num_experts
@@ -463,6 +470,7 @@ class MemoryMonitor:
 memory_monitor = MemoryMonitor()
 
 
+@contextmanager
 def dump_memory_usage_ctx(msg: str = "", log_level: str = "info"):
     """Context manager to dump memory usage before and after a code block."""
     memory_monitor.update_cpu()

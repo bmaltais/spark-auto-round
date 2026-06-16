@@ -1,15 +1,15 @@
 # Optimization
 
-We download an use Int4 AutoRound models form [Hugging Face](https://huggingface.co/Intel/Qwen3.6-27B-int4-AutoRound), but very little knowledge of their provenance. So when we make comparisons with other quantization techniques, how do we know whether the model we are using is optimal for our particular use case?
+We download and use Int4 AutoRound models from [Hugging Face](https://huggingface.co/Intel/Qwen3.6-27B-int4-AutoRound), but know very little sbout their provenance. So when we make comparisons with other quantization techniques, how do we know whether the model we are using is optimal for our particular use case?
 
-To run comparative benchmarks and compare and contrast quantized models we need the best version of each quantization technique for reference.
+To run comparative benchmarks and compare and contrast results with other quantized models we need the best version of each quantization technique for reference.
 
 ## Methodology
 
-The dense *Qwen 3.5 0.8B* model was used as a testbed to optimize Spark AutoRound (SAR). The *Qwen 3.5 0.8B* model was chosen because its recent, and within the family of models that are commonly used for inference on teh DGX spark. It also takes about 45 minutes to quantize, making it a practical choice for iterative testing. With each iteration SAR was invoked with the following command:
+The dense *Qwen 3.5 0.8B* model was used as a testbed to optimize Spark AutoRound (SAR). The *Qwen 3.5 0.8B* model was chosen because its recent, and within the family of models that are commonly used for inference on teh DGX spark. It also takes about 1:30 hours to quantize, making it a practical choice for iterative testing. With each iteration SAR was invoked with the following command:
 
 ```bash
-spark-auto-round Qwen/Qwen3.5-0.8B
+spark-auto-round --dataset "<dataset>" Qwen/Qwen3.5-0.8B
 ```
 
 The program generates a quantization report in the model directory that highlights sensitive layers.
@@ -86,9 +86,6 @@ docker run -it --name vllm-qwen35 \
     --tool-call-parser qwen3_coder \
     --chat-template /models/qwen3.6-enhanced.jinja \
     --reasoning-parser qwen3"
-
-#    --speculative-config '{\"method\": \"dflash\", \"model\": \"/models/Qwen3.6-27B-DFlash\", \"num_speculative_tokens\": 5}' \
-#    --speculative-config '{\"method\": \"qwen3_next_mtp\", \"num_speculative_tokens\": 3}' \
 
 docker container remove vllm-qwen35
 ```

@@ -126,9 +126,11 @@ def _check_divisible_by_32(ar):
                     ar.layer_config[n].update({"bits": 16, "data_type": "fp", "fixed_by_user": True})
                     skipped_layers.append(n)
     compressed_skipped_layers = compress_layer_names(skipped_layers)
-    logger.warning_once(
-        f"some layers are skipped quantization (shape not divisible by 32): {compressed_skipped_layers}"
-    )
+    if skipped_layers:
+        logger.warning_once(
+            f"Skipped quantization for {len(skipped_layers)} layer(s) with shape not divisible by 32: {compressed_skipped_layers}. "
+            "These layers will run in full precision (bf16) — this is expected for small/gate layers and has negligible impact."
+        )
 
 
 class OutputFormat(ABC):

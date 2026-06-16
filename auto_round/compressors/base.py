@@ -405,7 +405,7 @@ class BaseCompressor(object):
 
         if predefined_ignore_layers:
             logger.info(f"Using predefined ignore_layers: {compressed_predefined_ignore_layers}")
-            tmp_str = predefined_ignore_layers.replace(" ", "")
+            tmp_str = ",".join(predefined_ignore_layers).replace(" ", "")
             if self.ignore_layers == "":
                 self.ignore_layers = tmp_str
             else:
