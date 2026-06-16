@@ -74,50 +74,49 @@ Spark auto round repeatedly achieved a [92/100](docs/test-score.md) tool-eval-be
 
 ### Recipe
 
-This was the vllm bash script used:
+This was the vllm bash script used for testing:
 
 ```bash
 #!/bin/bash
-
 docker run -it --name vllm-qwen36 \
     --gpus all --net=host --ipc=host \
     -v ~/models:/models \
-    -e VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 \
     -e TORCH_MATMUL_PRECISION=high \
     -e NVIDIA_FORWARD_COMPAT=1 \
     -e NVIDIA_DISABLE_REQUIRE=1 \
+    -e VLLM_MARLIN_USE_ATOMIC_ADD=1 \
+    -e VLLM_USE_FLASHINFER_SAMPLER=1 \
+    -e FLASHINFER_DISABLE_VERSION_CHECK=1 \
     -e HF_HUB_OFFLINE=1 \
     -e TRANSFORMERS_OFFLINE=1 \
     vllm-node-tf5 \
-    bash -c -i "vllm serve /models/Qwen3.6-27B-int4-AutoRound \
+    bash -c -i "vllm serve /models/Qwen3.6-27B-int4-AutoRound-oc \
     --served-model-name qwen/qwen3.6-27b \
     --port 8000 \
     --host 0.0.0.0 \
-    --gpu-memory-utilization 0.60 \
-    --max-model-len 192K \
-    --max-num-batched-tokens 32768 \
+    --gpu-memory-utilization 0.42 \
+    --max-model-len 128K \
+    --max-num-batched-tokens 16384 \
     --max-num-seqs 16 \
     --load-format fastsafetensors \
-    --dtype auto \
-    --quantization modelopt \
-    --kv-cache-dtype auto \
-    --generation-config auto \
-    --enable-chunked-prefill \
-    --no-enable-prefix-caching \
-    --override-generation-config '{\"temperature\": 0.7}' \
     --attention-backend flash_attn \
-    --limit-mm-per-prompt '{\"image\": 4, \"video\": 2}' \
-    --mm-encoder-tp-mode data \
-    --mm-processor-cache-type shm \
+    --generation-config auto \
+    --override-generation-config '{\"temperature\": 0.7}' \
+    --enable-chunked-prefill \
+    --enable-prefix-caching \
+    --chat-template /models/qwen3.6-enhanced.jinja \
     --enable-auto-tool-choice \
     --tool-call-parser qwen3_coder \
-    --chat-template /models/qwen3.6-enhanced.jinja \
     --reasoning-parser qwen3 \
-    --speculative-config '{\"method\": \"qwen3_next_mtp\", \"num_speculative_tokens\": 3}'"
-#    --speculative-config '{\"method\": \"dflash\", \"model\": \"/models/Qwen3.6-27B-DFlash\", \"num_speculative_tokens\": 10}'"
+    --default-chat-template-kwargs '{\"preserve_thinking\": true}' \
+    --speculative-config '{\"method\": \"dflash\", \"model\": \"/models/Qwen3.6-27B-DFlash\", \"num_speculative_tokens\": 5}'"
+#    --speculative-config '{\"method\": \"ngram\", \"num_speculative_tokens\": 3}'"
+#    --speculative-config '{\"method\": \"mtp\", \"num_speculative_tokens\": 1}'"
 
 docker container remove vllm-qwen36
 ```
+
+**NOTE:** Use `--no-enable-prefix-caching` with `mtp` speculative decoding. 
 
 ## Iterative optimization using Qwen 3.5 0.8b
 
