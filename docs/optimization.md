@@ -16,33 +16,33 @@ The program generates a quantization report in the model directory that highligh
 
 ```txt
 Sensitivity Analysis:
-───────────────────────────────────────────────────────────────────────────────────────────────────────
-Layer                                      Cosine Sim  PSNR (dB)      Iters               Loss   Status
-───────────────────────────────────────────────────────────────────────────────────────────────────────
-🟢 model.layers.0                               0.9965       51.1    965/966 6.41e-05 → 8.50e-06     PASS
-🟢 model.layers.1                               0.9967       52.2    970/971 5.87e-05 → 1.19e-05     PASS
-🟢 model.layers.2                               0.9964       52.0    992/993 6.11e-05 → 1.52e-05     PASS
-🟢 model.layers.3                               0.9955       49.1    887/888 7.99e-05 → 2.20e-05     PASS
-🟢 model.layers.4                               0.9956       48.3    995/996 6.45e-05 → 2.20e-05     PASS
-🟢 model.layers.5                               0.9954       48.0    994/995 6.48e-05 → 2.41e-05     PASS
-🟢 model.layers.6                               0.9951       57.1    956/957 7.83e-05 → 2.95e-05     PASS
-🟢 model.layers.7                               0.9943       51.0    998/999 1.04e-04 → 3.39e-05     PASS
-🟢 model.layers.8                               0.9940       50.9    874/875 6.51e-05 → 3.21e-05     PASS
-🟢 model.layers.9                               0.9939       50.2    996/997 6.89e-05 → 3.54e-05     PASS
-🟢 model.layers.10                              0.9940       50.9    840/841 6.92e-05 → 3.54e-05     PASS
-🟢 model.layers.11                              0.9926       45.2    989/990 1.09e-04 → 5.05e-05     PASS
-🟠 model.layers.12                              0.9930       44.8    979/980 9.85e-05 → 5.71e-05     WARN
-🟢 model.layers.13                              0.9934       45.1    784/785 1.22e-04 → 6.98e-05     PASS
-🟢 model.layers.14                              0.9934       52.5    953/954 1.93e-04 → 1.03e-04     PASS
-🟠 model.layers.15                              0.9925       43.6    979/980 3.89e-04 → 1.78e-04     WARN
-🟠 model.layers.16                              0.9931       44.5    814/815 4.28e-04 → 2.25e-04     WARN
-🟢 model.layers.17                              0.9933       45.2    881/882 4.57e-04 → 2.72e-04     PASS
-🟢 model.layers.18                              0.9936       46.5    652/653 5.24e-04 → 3.40e-04     PASS
-🟢 model.layers.19                              0.9934       46.0    841/842 9.94e-04 → 4.73e-04     PASS
-🟢 model.layers.20                              0.9934       46.1    848/849 8.79e-04 → 5.53e-04     PASS
-🟢 model.layers.21                              0.9929       45.9    927/928 0.001106 → 8.06e-04     PASS
-🟠 model.layers.22                              0.9912       44.7    510/511 0.001813 → 0.001104     WARN
-🟠 model.layers.23                              0.9883       46.5    941/942 0.003638 → 0.001930     WARN
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+Layer                                    Cosine Sim  PSNR (dB)      Iters              uLoss   Status
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+🟢 model.layers.0                               0.9965       51.1      947        63.87 → 8.49   PASS
+🟢 model.layers.1                               0.9966       52.2      947       57.59 → 12.02   PASS
+🟢 model.layers.2                               0.9962       51.8      766       59.71 → 15.20   PASS
+🟢 model.layers.3                               0.9953       48.9      758       81.82 → 22.47   PASS
+🟢 model.layers.4                               0.9955       48.2     1000       65.34 → 23.74   PASS
+🟢 model.layers.5                               0.9952       47.8      862       71.02 → 23.95   PASS
+🟢 model.layers.6                               0.9950       57.0      950       74.40 → 29.93   PASS
+🟢 model.layers.7                               0.9939       50.7      748      100.77 → 34.33   PASS
+🟢 model.layers.8                               0.9939       50.9      990       67.47 → 32.36   PASS
+🟢 model.layers.9                               0.9937       50.1      978       66.30 → 38.22   PASS
+🟢 model.layers.10                              0.9939       50.8      898       68.12 → 36.67   PASS
+🟢 model.layers.11                              0.9922       45.0      872      108.81 → 52.56   PASS
+🟠 model.layers.12                              0.9926       44.6      776      103.97 → 59.33   WARN
+🟢 model.layers.13                              0.9932       45.0      952      124.58 → 71.75   PASS
+🟢 model.layers.14                              0.9932       52.4      942     193.11 → 109.75   PASS
+🟠 model.layers.15                              0.9923       43.4      952     385.22 → 181.85   WARN
+🟠 model.layers.16                              0.9929       44.4      753     443.40 → 232.46   WARN
+🟢 model.layers.17                              0.9931       45.1      886     463.46 → 278.33   PASS
+🟢 model.layers.18                              0.9935       46.5      949     503.57 → 352.99   PASS
+🟢 model.layers.19                              0.9932       46.0      809     953.13 → 494.19   PASS
+🟢 model.layers.20                              0.9933       46.0      821     878.47 → 609.21   PASS
+🟢 model.layers.21                              0.9926       45.8      888    1235.61 → 777.71   PASS
+🟠 model.layers.22                              0.9909       44.5      658   1901.12 → 1121.81   WARN
+🟠 model.layers.23                              0.9872       46.1      233   3695.04 → 1959.51   WARN
 ```
 
 The model was then served with `vllm` using [Spark vllm Docker](https://github.com/eugr/spark-vllm-docker) using the following bash script:

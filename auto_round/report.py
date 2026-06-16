@@ -18,7 +18,8 @@ Simplified for W4A16-only workflow (no adaptive FP8/FP16 fallback).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import csv
+from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
 
@@ -60,7 +61,7 @@ class QuantizationReport:
 
         report = QuantizationReport(
             model_name="Qwen/Qwen3.5-0.8B",
-            version="0.14.0",
+            version="0.14.1",
             cli_args={"batch_size": 8, "iters": 1000},
         )
         # After each block:
@@ -131,20 +132,51 @@ class QuantizationReport:
         self.peak_vram_gb = peak_vram_gb
 
     def save(self, output_dir: str) -> Path:
-        """Write the formatted report to ``<output_dir>/quantization-report.txt``.
+        """Write the formatted report to ``<output_dir>/quantization-report.txt``
+        and a CSV file to ``<output_dir>/quantization-report.csv``.
 
         Args:
             output_dir: Directory to write the report into.
 
         Returns:
-            Path to the written report file.
+            Path to the written ``.txt`` report file.
         """
-        report_path = Path(output_dir) / "quantization-report.txt"
-        report_path.parent.mkdir(parents=True, exist_ok=True)
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
 
+        txt_path = out / "quantization-report.txt"
         lines = self._format_report()
-        report_path.write_text("\n".join(lines) + "\n")
-        return report_path
+        txt_path.write_text("\n".join(lines) + "\n")
+
+        csv_path = self.save_csv(output_dir)
+
+        return txt_path
+
+    def save_csv(self, output_dir: str) -> Path:
+        """Write per-layer metrics to ``<output_dir>/quantization-report.csv``.
+
+        Columns:
+            block_name, cosine_sim, psnr_db, init_loss, best_loss,
+            best_iter, total_iters, passed
+
+        Args:
+            output_dir: Directory to write the CSV into.
+
+        Returns:
+            Path to the written CSV file.
+        """
+        csv_path = Path(output_dir) / "quantization-report.csv"
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+        field_names = [f.name for f in fields(LayerResult)]
+
+        with csv_path.open("w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=field_names)
+            writer.writeheader()
+            for lr in self.layers:
+                writer.writerow({name: getattr(lr, name) for name in field_names})
+
+        return csv_path
 
     def get_summary(self) -> dict[str, int]:
         """Return pass/warn counts.
@@ -167,7 +199,7 @@ class QuantizationReport:
         """Format a loss value for display."""
         if value == 0:
             return "0"
-        return f"{value:.4f}"
+        return f"{value*1000000:.2f}"
 
     def _format_report(self) -> list[str]:
         """Build the full report as a list of lines."""
@@ -202,8 +234,8 @@ class QuantizationReport:
         # Sensitivity Analysis table
         lines.append("Sensitivity Analysis:")
         header = (
-            f"{'Layer':<42} {'Cosine Sim':>10} {'PSNR (dB)':>10} "
-            f"{'Iters':>10} {'Loss':>18} {'Status':>8}"
+            f"{'Layer':<40} {'Cosine Sim':>10} {'PSNR (dB)':>10} "
+            f"{'Iters':>10} {'uLoss':>18} {'Status':>8}"
         )
         separator = "─" * len(header)
         lines.append(separator)
@@ -217,7 +249,7 @@ class QuantizationReport:
 
             # Iters column
             if lr.total_iters > 0:
-                iters_str = f"{lr.best_iter}/{lr.total_iters}"
+                iters_str = f"{lr.total_iters}"
             else:
                 iters_str = "—"
 

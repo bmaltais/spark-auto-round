@@ -1,7 +1,7 @@
 === Quantization Report ===
 Model: Qwen/Qwen3.5-0.8B
-Date: 2026-06-15 11:49:05
-Version: 0.14.0
+Date: 2026-06-15 20:12:09
+Version: 0.14.1
 
 CLI Arguments:
   --batch_size 8
@@ -12,37 +12,37 @@ CLI Arguments:
   --output_dir ./models/Qwen3.5-0.8B-int4-AutoRound
 
 Memory Summary:
-  Peak RAM: 10.80 GB
-  Peak VRAM: 12.75 GB
+  Peak RAM: 10.78 GB
+  Peak VRAM: 12.70 GB
 
 Sensitivity Analysis:
-───────────────────────────────────────────────────────────────────────────────────────────────────────
-Layer                                      Cosine Sim  PSNR (dB)      Iters               Loss   Status
-───────────────────────────────────────────────────────────────────────────────────────────────────────
-🟢 model.layers.0                               0.9965       51.1    965/966 6.41e-05 → 8.50e-06     PASS
-🟢 model.layers.1                               0.9967       52.2    970/971 5.87e-05 → 1.19e-05     PASS
-🟢 model.layers.2                               0.9964       52.0    992/993 6.11e-05 → 1.52e-05     PASS
-🟢 model.layers.3                               0.9955       49.1    887/888 7.99e-05 → 2.20e-05     PASS
-🟢 model.layers.4                               0.9956       48.3    995/996 6.45e-05 → 2.20e-05     PASS
-🟢 model.layers.5                               0.9954       48.0    994/995 6.48e-05 → 2.41e-05     PASS
-🟢 model.layers.6                               0.9951       57.1    956/957 7.83e-05 → 2.95e-05     PASS
-🟢 model.layers.7                               0.9943       51.0    998/999 1.04e-04 → 3.39e-05     PASS
-🟢 model.layers.8                               0.9940       50.9    874/875 6.51e-05 → 3.21e-05     PASS
-🟢 model.layers.9                               0.9939       50.2    996/997 6.89e-05 → 3.54e-05     PASS
-🟢 model.layers.10                              0.9940       50.9    840/841 6.92e-05 → 3.54e-05     PASS
-🟢 model.layers.11                              0.9926       45.2    989/990 1.09e-04 → 5.05e-05     PASS
-🟠 model.layers.12                              0.9930       44.8    979/980 9.85e-05 → 5.71e-05     WARN
-🟢 model.layers.13                              0.9934       45.1    784/785 1.22e-04 → 6.98e-05     PASS
-🟢 model.layers.14                              0.9934       52.5    953/954 1.93e-04 → 1.03e-04     PASS
-🟠 model.layers.15                              0.9925       43.6    979/980 3.89e-04 → 1.78e-04     WARN
-🟠 model.layers.16                              0.9931       44.5    814/815 4.28e-04 → 2.25e-04     WARN
-🟢 model.layers.17                              0.9933       45.2    881/882 4.57e-04 → 2.72e-04     PASS
-🟢 model.layers.18                              0.9936       46.5    652/653 5.24e-04 → 3.40e-04     PASS
-🟢 model.layers.19                              0.9934       46.0    841/842 9.94e-04 → 4.73e-04     PASS
-🟢 model.layers.20                              0.9934       46.1    848/849 8.79e-04 → 5.53e-04     PASS
-🟢 model.layers.21                              0.9929       45.9    927/928 0.001106 → 8.06e-04     PASS
-🟠 model.layers.22                              0.9912       44.7    510/511 0.001813 → 0.001104     WARN
-🟠 model.layers.23                              0.9883       46.5    941/942 0.003638 → 0.001930     WARN
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+Layer                                    Cosine Sim  PSNR (dB)      Iters              uLoss   Status
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+🟢 model.layers.0                               0.9965       51.1    946/947     63.878 → 8.494     PASS
+🟢 model.layers.1                               0.9966       52.2    946/947    57.599 → 12.021     PASS
+🟢 model.layers.2                               0.9962       51.8    765/766    59.710 → 15.206     PASS
+🟢 model.layers.3                               0.9953       48.9    757/758    81.823 → 22.473     PASS
+🟢 model.layers.4                               0.9955       48.2   999/1000    65.346 → 23.747     PASS
+🟢 model.layers.5                               0.9952       47.8    861/862    71.029 → 23.954     PASS
+🟢 model.layers.6                               0.9950       57.0    949/950    74.408 → 29.931     PASS
+🟢 model.layers.7                               0.9939       50.7    747/748   100.778 → 34.331     PASS
+🟢 model.layers.8                               0.9939       50.9    989/990    67.479 → 32.369     PASS
+🟢 model.layers.9                               0.9937       50.1    977/978    66.300 → 38.225     PASS
+🟢 model.layers.10                              0.9939       50.8    897/898    68.121 → 36.675     PASS
+🟢 model.layers.11                              0.9922       45.0    871/872   108.818 → 52.561     PASS
+🟠 model.layers.12                              0.9926       44.6    775/776   103.975 → 59.335     WARN
+🟢 model.layers.13                              0.9932       45.0    951/952   124.580 → 71.753     PASS
+🟢 model.layers.14                              0.9932       52.4    941/942  193.115 → 109.751     PASS
+🟠 model.layers.15                              0.9923       43.4    951/952  385.227 → 181.853     WARN
+🟠 model.layers.16                              0.9929       44.4    752/753  443.403 → 232.462     WARN
+🟢 model.layers.17                              0.9931       45.1    885/886  463.467 → 278.337     PASS
+🟢 model.layers.18                              0.9935       46.5    948/949  503.576 → 352.998     PASS
+🟢 model.layers.19                              0.9932       46.0    808/809  953.132 → 494.195     PASS
+🟢 model.layers.20                              0.9933       46.0    820/821  878.472 → 609.210     PASS
+🟢 model.layers.21                              0.9926       45.8    887/888 1235.616 → 777.714     PASS
+🟠 model.layers.22                              0.9909       44.5    657/658 1901.122 → 1121.811     WARN
+🟠 model.layers.23                              0.9872       46.1    232/233 3695.046 → 1959.516     WARN
 
 Summary:
   Total blocks: 24

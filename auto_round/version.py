@@ -15,4 +15,4 @@
 library supporting popular model weight only compression based on signround."""
 
 #Version reported in model output metadata (matches upstream auto-round version)
-__version__ = "0.14.0"
+__version__ = "0.14.1"

@@ -130,10 +130,10 @@ class CLIDisplay:
         # Format loss info
         loss_parts = []
         if init_loss is not None and best_loss is not None and total_iters > 0:
-            loss_parts.append(f"loss {self._fmt_loss(init_loss)} → {self._fmt_loss(best_loss)}")
+            loss_parts.append(f"uloss {self._fmt_loss(init_loss)} → {self._fmt_loss(best_loss)}")
             loss_parts.append(f"iter {best_iter}/{total_iters}")
         elif best_loss is not None:
-            loss_parts.append(f"loss {self._fmt_loss(best_loss)}")
+            loss_parts.append(f"uloss {self._fmt_loss(best_loss)}")
 
         # Build the sensitivity line
         parts = [
@@ -167,9 +167,7 @@ class CLIDisplay:
         """Format a loss value for display."""
         if value == 0:
             return "0"
-        if value < 0.001:
-            return f"{value:.2e}"
-        return f"{value:.6f}"
+        return f"{value*1000000:.2f}"
 
     def update_progress(self, block_name: str) -> None:
         """Update the progress bar description (for compatibility).

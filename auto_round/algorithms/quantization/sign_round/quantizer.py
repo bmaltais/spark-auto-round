@@ -308,7 +308,7 @@ class SignRoundQuantizer(BaseQuantizers):
         if self.iters > 0:
             dump_info = (
                 f"quantized {len(quantized_layer_names)}/{(len(quantized_layer_names) + len(unquantized_layer_names))} "
-                f"layers in the block, loss iter 0: {init_loss:.6f} -> iter {best_iter}: {last_loss:.6f}"
+                f"layers in the block, uloss iter 0: {init_loss*1000000:.2f} -> iter {best_iter}: {last_loss*1000000:.2f}"
             )
         else:
             dump_info = (
@@ -532,7 +532,7 @@ class SignRoundQuantizer(BaseQuantizers):
         with torch.no_grad():
             unwrapper_layer(self.model, wrapper_linear, layer_name, best_params)
         mv_module_from_gpu(layer)
-        dump_info = f"quantized {layer_name},  loss iter 0: {init_loss:.6f} -> iter {best_iter}: {last_loss:.6f}"
+        dump_info = f"quantized {layer_name},  loss iter 0: {init_loss * 1000:.4f} -> iter {best_iter}: {last_loss * 1000:.4f}"
         logger.info(dump_info)
 
     def _get_optimizer(self, optimizer: Any):

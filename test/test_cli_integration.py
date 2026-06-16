@@ -26,11 +26,11 @@ class TestDisplayIntegration:
         from auto_round.report import QuantizationReport
         report = QuantizationReport(
             model_name="test-model",
-            version="0.14.0",
+            version="0.14.1",
             cli_args={"batch_size": 8},
         )
         assert report.model_name == "test-model"
-        assert report.version == "0.14.0"
+        assert report.version == "0.14.1"
 
 
 class TestMetricsWiring:
