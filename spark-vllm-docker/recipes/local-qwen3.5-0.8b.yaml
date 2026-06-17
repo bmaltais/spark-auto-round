@@ -1,5 +1,4 @@
 # Recipe: Qwen3.5-0.8B-int4-AutoRound
-# Qwen3.6-122B model in FP8 quantization + DFlash
 
 recipe_version: "1"
 name: Qwen3.5-0.8B-int4-AutoRound
@@ -27,7 +26,7 @@ defaults:
   gpu_memory_utilization: 0.60
   max_num_batched_tokens: 32768
   max-num-seqs: 4
-  served_model_name: qwen/qwen3.5-0.8b-sar-pile
+  served_model_name: qwen/qwen3.5-0.8b
   generation_config: '{"temperature": 0.7}'
 
 # Environment variables
@@ -37,13 +36,12 @@ env:
   NVIDIA_DISABLE_REQUIRE: '1'
   CUDA_DEVICE_MAX_CONNECTIONS: '1'
   VLLM_MARLIN_USE_ATOMIC_ADD: '1'
-  VLLM_AUTO_ROUND_BACKEND: gptq_marlin 
   FLASHINFER_DISABLE_VERSION_CHECK: 1
   CUTE_DSL_ARCH: sm_121a
 
 # The vLLM serve command template
 command: |
-  vllm serve /models/Qwen3.5-0.8B-int4-AutoRound-pile \
+  vllm serve /models/Qwen3.5-0.8B-int4-AutoRound \
   --served-model-name {served_model_name} \
   --max-model-len {max_model_len} \
   --gpu-memory-utilization {gpu_memory_utilization} \

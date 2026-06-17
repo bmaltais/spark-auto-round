@@ -38,3 +38,8 @@ spark-auto-round = "auto_round.__main__:run"
 
 [tool.setuptools.dynamic]
 version = {attr = "auto_round.version.__version__"}
+
+[tool.pytest.ini_options]
+markers = [
+    "skip_ci: mark test as skipped in CI (not necessary since covered by backend tests)",
+]
