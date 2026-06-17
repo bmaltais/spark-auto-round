@@ -353,6 +353,18 @@ def llm_load_model(
         return model, tokenizer
     # ── End meta device path ─────────────────────────────────────────────
 
+    # ── Non-meta path ─────────────────────────────────────────────────
+    # Load the raw config BEFORE model loading so we can preserve the
+    # original structure (text_config, vision_config, etc.).
+    # AutoModelForCausalLM.from_pretrained() flattens sub-configs and
+    # rewrites model_type (e.g. qwen3_5 -> qwen3_5_text), which breaks
+    # vLLM compatibility.
+    from transformers import AutoConfig
+
+    raw_config = AutoConfig.from_pretrained(
+        pretrained_model_name_or_path, trust_remote_code=trust_remote_code
+    )
+
     try:
         model = model_cls.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
     except ValueError as e:
@@ -367,6 +379,11 @@ def llm_load_model(
         model = model_cls.from_pretrained(
             pretrained_model_name_or_path, **{**load_kwargs, "trust_remote_code": False}
         )
+
+    # Restore the raw config to preserve sub-configs (text_config, vision_config)
+    # and the original model_type. The flattened config from transformers breaks
+    # vLLM's config resolution (e.g. max_position_embeddings lookup).
+    model.config = raw_config
 
     model = model.eval()
     monkey_patch_model(model)
