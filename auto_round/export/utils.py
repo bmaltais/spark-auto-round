@@ -210,6 +210,52 @@ def resolve_pipeline_export_layout(model: nn.Module, output_dir: str) -> tuple[s
     return model_output_dir, processor_output_dir, True
 
 
+# Config normalizations for vLLM compatibility.
+# Some transformers configs use specialized model_type/architecture values
+# that vLLM doesn't recognize. We normalize these to the base forms.
+_CONFIG_NORMALIZATIONS = {
+    "qwen3_5_text": {
+        "model_type": "qwen3_5",
+        "architectures": ["Qwen3_5ForConditionalGeneration"],
+    },
+    "qwen3_5_moe_text": {
+        "model_type": "qwen3_5_moe",
+        "architectures": ["Qwen3_5MoeForConditionalGeneration"],
+    },
+}
+
+
+def _normalize_config_for_vllm(save_dir: str) -> None:
+    """Normalize model_type and architectures in config.json for vLLM compatibility.
+
+    Some transformers configs use specialized model_type/architecture values
+    (e.g. qwen3_5_text / Qwen3_5ForCausalLM) that trigger different config
+    classes than what vLLM expects. This function maps them back to the base
+    forms.
+    """
+    config_path = os.path.join(save_dir, "config.json")
+    if not os.path.exists(config_path):
+        return
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    original_mt = data.get("model_type")
+    if original_mt in _CONFIG_NORMALIZATIONS:
+        fixes = _CONFIG_NORMALIZATIONS[original_mt]
+        changed = []
+        if data.get("model_type") != fixes["model_type"]:
+            data["model_type"] = fixes["model_type"]
+            changed.append(f"model_type: '{original_mt}' -> '{fixes['model_type']}'")
+        if data.get("architectures") != fixes["architectures"]:
+            data["architectures"] = fixes["architectures"]
+            changed.append(f"architectures: {fixes['architectures']}")
+        if changed:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            logger.info(f"Normalized config.json for vLLM compatibility: {'; '.join(changed)}")
+
+
 def save_model(
     model: nn.Module,
     save_dir: str,
@@ -283,6 +329,9 @@ def save_model(
             data["dtype"] = dtype_str
         with open(config_path, "w") as file:
             json.dump(data, file, indent=2)
+
+    # Normalize config for vLLM compatibility (e.g. qwen3_5_text -> qwen3_5)
+    _normalize_config_for_vllm(save_dir)
 
     config_file = "quantization_config.json"
     if hasattr(model, "config") and hasattr(model.config, "quantization_config"):
