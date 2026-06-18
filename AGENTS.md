@@ -48,6 +48,11 @@ auto_round/              # Main package (installed as `spark_auto_round`)
 ├── metrics.py           # Quantization metrics (PSNR, cosine similarity)
 ├── report.py            # QuantizationReport (per-layer pass/warn/fail)
 ├── logger.py            # Logging setup
+├── asqa/                # ASAQ layer substitution utility
+│   ├── __init__.py      # Package exports
+│   ├── __main__.py      # CLI: spark-asqa-substitute entrypoint
+│   ├── router_jaccard.py  # Router Jaccard Similarity for MOE models
+│   └── substitute.py    # Core substitution engine
 └── utils/               # Device detection, model loading, monkey patches
 
 auto_round_extension/    # Low-level quantization kernels
@@ -60,7 +65,12 @@ test/
 ├── fixtures.py          # Session-scoped tiny model fixtures
 ├── helpers.py           # get_model_path(), model_infer(), DataLoader
 ├── envs.py              # Test decorators (require_gptqmodel, etc.)
+├── test_asqa/           # ASAQ unit tests (no GPU needed)
+│   ├── __init__.py
+│   ├── test_router_jaccard.py  # Router Jaccard tests
+│   └── test_substitute.py
 └── test_cuda/           # CUDA tests (quantization, algorithms, packing)
+    └── test_asqa_integration.py  # ASAQ integration tests (needs CUDA + model)
 ```
 
 ## Important gotchas
@@ -99,10 +109,55 @@ Hardcoded values: device=cuda:0, format=auto_round, scheme=W4A16, platform=hf, s
 | `AR_DISABLE_DATASET_SUBPROCESS` | 0 | Load dataset in main process |
 | `AR_ENABLE_COMPILE_PACKING` | 0 | Enable compiled packing kernels |
 
+## ASAQ Layer Substitution
+
+The `spark-asqa-substitute` utility takes a working quantized model (all W4A16) and substitutes specified layers back to FP16. This produces an "ASAQ" copy for A/B evaluation.
+
+**Layer selection precedence**:
+1. `--layers 54,58` — explicit manual indices
+2. `--top-n 5` — pick N worst layers from quantization report
+3. (default) — substitute all layers that failed quality checks
+
+**Usage**:
+```bash
+# Default: fix all broken layers from report
+spark-asqa-substitute Qwen/Qwen3.6-27B
+
+# Pick 5 worst layers
+spark-asqa-substitute --top-n 5 Qwen/Qwen3.6-27B
+
+# Manual override
+spark-asqa-substitute --layers 54,58 Qwen/Qwen3.6-27B
+
+# Use PSNR instead of cosine similarity
+spark-asqa-substitute --top-n 5 --metric psnr Qwen/Qwen3.6-27B
+```
+
+**Arguments**:
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `model` | Yes | — | Model name (positional) |
+| `--layers` | No | (from report) | Comma-separated layer indices (e.g. `54,58`) |
+| `--top-n` | No | (from report) | Pick N worst layers from quantization report |
+| `--metric` | No | cosine | Ranking metric: `cosine` or `psnr` |
+| `--threshold` | No | — | Select all layers below this quality threshold |
+| `--output_dir` | No | `./models/{name}-int4-ASAQ` | Output directory override |
+| `--no-smoke-test` | No | (test runs) | Skip inference smoke test |
+
+**Path inference** (given `model = "Qwen/Qwen3.6-27B"`):
+- Quantized model: `./models/Qwen3.6-27B-int4-AutoRound`
+- FP16 model: `Qwen/Qwen3.6-27B` (from HuggingFace cache)
+- Output dir: `./models/Qwen3.6-27B-int4-ASAQ`
+
+**Output**: Modified safetensors model + copied configs + updated quantization report.
+
+**Code location**: `auto_round/asqa/` package.
+
 ## Testing patterns
 
 - **Top-level tests** (`test/test_*.py`): Pure Python, no GPU. CLI display, metrics, report.
-- **CUDA tests** (`test/test_cuda/`): Require CUDA GPU. Quantization, algorithms, packing.
+- **ASAQ tests** (`test/test_asqa/`): No GPU. Core substitution logic, CLI parsing, report generation.
+- **CUDA tests** (`test/test_cuda/`): Require CUDA GPU. Quantization, algorithms, packing, ASAQ integration.
 - **Fixtures**: Session-scoped, auto-download tiny model slices from HuggingFace. Saved to `test/tmp/`, cleaned up after session.
 - **`get_model_path()`** (`test/helpers.py`): Checks `/tf_dataset/auto_round/models/`, `/models/`, `/dataset/`, then falls back to HuggingFace name.
 
