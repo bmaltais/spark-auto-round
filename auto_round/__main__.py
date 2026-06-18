@@ -90,6 +90,13 @@ class BasicArgumentParser(argparse.ArgumentParser):
             help="Trust remote code when loading models (default: True). "
                  "Disable with --no-trust-remote-code for security.",
         )
+        basic.add_argument(
+            "--dry-run",
+            action="store_true",
+            default=False,
+            help="Run the full init pipeline except quantization tuning; "
+                 "write config files only for inspection.",
+        )
 
         tuning = self.add_argument_group("Tuning Arguments")
         tuning.add_argument(
@@ -150,6 +157,8 @@ def tune(args):
         f"  --dataset {args.dataset}\n"
         f"  --output_dir {args.output_dir}"
     )
+    if args.dry_run:
+        logger.info("  ** DRY-RUN mode: will skip quantization, write config files only **")
 
     # --- Hardcoded values for GB10 ---
     device_map = "cuda:0"
@@ -252,6 +261,7 @@ def tune(args):
         model_dtype=args.model_dtype,
         momentum=0,
         trust_remote_code=args.trust_remote_code,
+        dry_run=args.dry_run,
         rotation_config=None,
         algorithm=None,
         use_meta_device=use_meta_device,

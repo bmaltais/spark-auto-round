@@ -1185,8 +1185,8 @@ def revert_checkpoint_conversion_mapping(name: str, key_mapping: dict[str, str])
     (e.g. ``model``).  This function applies the *reverse* mapping: given a
     checkpoint name it produces the original PyTorch name.
 
-    Simple prefix replacement is used instead of regex to avoid pitfalls with
-    anchors, lookaheads, and non-anchored global matches.
+    Uses ``re.sub`` so both simple prefix patterns (``^model.language_model``)
+    and complex regex patterns (``^model\\.(?!language_model\\.)``) are handled.
     """
     if "," in name:
         return ",".join(revert_checkpoint_conversion_mapping(part, key_mapping) for part in name.split(","))
@@ -1195,26 +1195,16 @@ def revert_checkpoint_conversion_mapping(name: str, key_mapping: dict[str, str])
         if isinstance(target_patterns, str):
             target_patterns = [target_patterns]
         for target_pattern in target_patterns:
-            # Determine the literal prefix.  HuggingFace _weight_conversions use
-            # ``^`` to anchor to the start of the string.
-            anchored = source_pattern.startswith("^")
-            prefix = re.sub(r"^\^|\(.*\)", "", source_pattern)
-            # Backrefs like ``\\1`` are irrelevant for simple prefix replacement.
-            target_clean = re.sub(r"\\\d+", "", target_pattern)
-
-            if anchored:
-                if name.startswith(prefix):
-                    # Guard against double-conversion: skip if name already
-                    # starts with the target.
-                    if not name.startswith(target_clean):
-                        name = target_clean + name[len(prefix):]
-                        return name
-            else:
-                idx = name.find(prefix)
-                if idx != -1:
-                    if target_clean not in name:
-                        name = name[:idx] + target_clean + name[idx + len(prefix):]
-                        return name
+            try:
+                new_name, n_replace = re.subn(source_pattern, target_pattern, name)
+            except re.error:
+                continue
+            if n_replace > 0:
+                # Guard against double-conversion: skip if name already
+                # starts with the target (after backref substitution).
+                target_clean = re.sub(r"\\d+", "", target_pattern)
+                if not new_name.startswith(target_clean):
+                    return new_name
     return name
 
 
