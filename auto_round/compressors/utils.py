@@ -182,48 +182,15 @@ def block_forward(
 
     input_others, input_tuple = prepare_special_model_block_inputs(block, input_ids, input_others, input_tuple)
 
-    # Convert 2D attention_mask to 4D causal mask for decoder layers that expect it.
-    # The block (decoder layer) doesn't call create_causal_mask itself — that lives
-    # in the parent TextModel.  When the block receives a 2D mask (batch, seq_len)
-    # from cached calibration data, SDPA rejects it.  Convert here.
-    if "attention_mask" in input_others and input_others["attention_mask"] is not None:
-        am = input_others["attention_mask"]
-        if isinstance(am, torch.Tensor) and am.ndim == 2:
-            from transformers.masking_utils import create_causal_mask
+    # NOTE: 2D→4D causal mask conversion was removed from this hot loop.
+    # It was causing a 2x performance regression (~160s/it → ~349s/it) because
+    # create_causal_mask was called on every forward pass (~144k times per model).
+    # Upstream auto-round works without this conversion — the decoder layer
+    # handles the mask internally.  If a specific model needs the 4D mask,
+    # pre-compute it during calibration caching instead.
 
-            # Find the config — decoder layers store it on sub-modules (e.g. self_attn.config)
-            block_config = getattr(block, "config", None)
-            if block_config is None:
-                for sub in block.modules():
-                    if hasattr(sub, "config") and hasattr(sub.config, "_attn_implementation"):
-                        block_config = sub.config
-                        break
-            if block_config is not None:
-                inputs_embeds = input_ids if input_ids.dtype.is_floating_point else None
-                if inputs_embeds is not None:
-                    causal_mask = create_causal_mask(
-                        config=block_config,
-                        inputs_embeds=inputs_embeds,
-                        attention_mask=am,
-                        past_key_values=input_others.get("past_key_values"),
-                        position_ids=input_others.get("position_ids"),
-                    )
-                    if causal_mask is not None:
-                        input_others["attention_mask"] = causal_mask
-
-    # Resample shared-cache position_embeddings to match the current batch size.
-    # position_embeddings is stored as a shared key (one value, not per-sample),
-    # but hidden_states may have been resampled to a different batch size by
-    # _sampling_inputs.  Slice the embeddings to match.
-    if "position_embeddings" in input_others and input_others["position_embeddings"] is not None:
-        pe = input_others["position_embeddings"]
-        batch_size = input_ids.shape[0]
-        if isinstance(pe, (tuple, list)) and len(pe) >= 2:
-            cos, sin = pe[0], pe[1]
-            if isinstance(cos, torch.Tensor) and cos.shape[0] != batch_size:
-                input_others["position_embeddings"] = (cos[:batch_size], sin[:batch_size])
-        elif isinstance(pe, torch.Tensor) and pe.shape[0] != batch_size:
-            input_others["position_embeddings"] = pe[:batch_size]
+    # NOTE: position_embeddings resampling was also removed.
+    # _sampling_inputs() already handles shared cache keys correctly.
 
     # Use the block's actual parameter name for the first positional argument.
     import inspect as _inspect

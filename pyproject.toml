@@ -24,6 +24,8 @@ dependencies = [
     "safetensors",
     "huggingface_hub",
     "pydantic",
+    "flash-linear-attention>=0.3.0",
+    "causal-conv1d>=1.4.0",
 ]
 
 [project.optional-dependencies]

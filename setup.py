@@ -21,6 +21,8 @@ setup(
         "py-cpuinfo",
         "accelerate",
         "pydantic",
+        "flash-linear-attention>=0.3.0",
+        "causal-conv1d>=1.4.0",
     ],
     extras_require={
         "dev": ["pytest", "pytest-cov"],
