@@ -216,7 +216,6 @@ class LLMCalibrator(Calibrator):
         block_names = flatten_list(block_names)
         c.to_cached_layers = block_names + layer_names
 
-        tmp_dtype = None  # TODO delete this as most model is not fp32 now
         ## have bug if block name is not the first block
         if (len(block_names) > 1 or len(layer_names) > 0) and c.compress_context.low_gpu_mem_usage:
             tmp_dtype = c.model_context.model.dtype

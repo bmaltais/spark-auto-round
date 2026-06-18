@@ -13,6 +13,60 @@
 # limitations under the License.
 """Device utilities — detection, memory management, and patches."""
 
+__all__ = [
+    # detect.py
+    "CpuInfo",
+    "DEVICE_ENVIRON_VARIABLE_MAPPING",
+    "detect_device",
+    "detect_device_count",
+    "get_device_and_parallelism",
+    "get_packing_device",
+    "is_auto_device_mapping",
+    "is_autoround_exllamav2_available",
+    "is_gaudi2",
+    "is_hpex_available",
+    "is_package_available",
+    "override_cuda_device_capability",
+    "parse_available_devices",
+    "set_cuda_visible_devices",
+    # memory.py
+    "ClearMemory",
+    "MemoryMonitor",
+    "_estimate_param_count_from_config",
+    "_force_trim_malloc",
+    "bytes_to_gigabytes",
+    "check_memory_availability",
+    "clear_memory",
+    "clear_memory_if_reached_threshold",
+    "dump_memory_usage_ctx",
+    "dump_mem_usage",
+    "estimate_memory_strategy",
+    "get_device_memory",
+    "get_max_vram",
+    "log_memory_analysis",
+    "memory_monitor",
+    "out_of_vram",
+    # patches.py
+    "_bump_dynamo_cache_limit",
+    "_allocate_layers_to_devices",
+    "can_pack_with_numba",
+    "compile_func",
+    "compile_func_on_cuda_or_cpu",
+    "dispatch_model_block_wise",
+    "dispatch_model_by_all_available_devices",
+    "estimate_tuning_block_mem",
+    "get_first_available_attr",
+    "get_major_device",
+    "get_moe_memory_ratio",
+    "is_numba_available",
+    "is_tbb_available",
+    "partition_dict_numbers",
+    "set_auto_device_map_for_block_with_tuning",
+    "set_avg_auto_device_map",
+    "set_non_auto_device_map",
+    "set_tuning_device_for_layer",
+]
+
 # Re-export from detect.py
 from auto_round.utils.device.detect import (
     CpuInfo,

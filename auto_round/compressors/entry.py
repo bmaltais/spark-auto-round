@@ -26,6 +26,7 @@ def _preview_resolved_attrs(config, scheme=None) -> dict:
         _, final_attrs = _parse_scheme(scheme, user_overrides)
         return final_attrs
     except Exception:
+        logger.debug("_preview_resolved_attrs failed for %s", attr, exc_info=True)
         return {}
 
 
@@ -38,6 +39,7 @@ def _eager_validate_scheme(config, scheme=None) -> None:
     except (ValueError, NotImplementedError):
         raise
     except Exception:
+        logger.debug("_eager_validate_scheme failed for %s", attr, exc_info=True)
         return  # Other parse errors are deferred to post_init
 
     import copy

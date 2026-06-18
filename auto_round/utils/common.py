@@ -27,6 +27,60 @@ from packaging import version
 
 from auto_round.logger import logger
 
+__all__ = [
+    # Functions
+    "download_audiocaps_csv",
+    "compare_versions",
+    "torch_version_at_least",
+    "normalize_no_split_modules",
+    "monkey_patch_transformers",
+    "monkey_patch",
+    "monkey_patch_model",
+    "contain_any_mm_keys",
+    "is_debug_mode",
+    "is_local_path",
+    "get_library_version",
+    "str2bool",
+    "flatten_list",
+    "to_standard_regex",
+    "matches_any_regex",
+    "json_serialize",
+    "get_reciprocal",
+    "is_transformers_version_greater_or_equal_5_4_0",
+    "is_transformers_version_greater_or_equal_5",
+    "parse_layer_config_arg",
+    "compress_layer_names",
+    "infer_bits_by_data_type",
+    "get_checkpoint_conversion_mapping",
+    "get_reverse_checkpoint_conversion_mapping",
+    "revert_checkpoint_conversion_mapping",
+    "preserve_original_visual_block_name",
+    "apply_checkpoint_conversion_mapping",
+    # Classes
+    "LazyImport",
+    "SupportedFormats",
+    "GlobalState",
+    # Constants
+    "TORCH_VERSION_AT_LEAST_2_6_PRE_RELEASE",
+    "TORCH_VERSION_AT_LEAST_2_6",
+    "TORCH_VERSION_AT_LEAST_2_5",
+    "TORCH_VERSION_AT_LEAST_2_4",
+    "SHARED_CACHE_KEYS",
+    "SUPPORTED_DTYPES",
+    "SUPPORTED_FORMATS",
+    "SUPPORTED_LAYER_TYPES",
+    "INNER_SUPPORTED_LAYER_TYPES",
+    "VISION_MM_KEYS",
+    "AUDIO_MM_KEYS",
+    "MM_MODULE_KEYS",
+    "MM_KEYS",
+    "global_state",
+    # Re-exports from other modules
+    "logger",
+    "deepspeed_exists",
+    "htcore",
+]
+
 
 def download_audiocaps_csv():
     """Download AudioCaps train.csv and return the local cache path.
@@ -322,7 +376,7 @@ def _patch_rotary_embedding_init_for_legacy_remote_code():
     pre_trained_model._init_weights = _patched_init_weights
 
 
-# TODO: only AutoModelForCausalLM is patched; other Auto* classes are not covered yet
+# NOTE: Only AutoModelForCausalLM is supported in this fork (by design).
 def monkey_patch_transformers():
     transformers_version = getattr(transformers, "__version__", None)
     if transformers_version is None:
@@ -901,15 +955,6 @@ def is_transformers_version_greater_or_equal_5():
     return version.parse(transformers.__version__) >= version.parse("5.0.0")
 
 
-# TODO: (yiliu30) refine version check logic
-@lru_cache(None)
-def is_transformers_version_greater_or_equal_4():
-    import transformers
-    from packaging import version
-
-    return version.parse(transformers.__version__) >= version.parse("4.0.0")
-
-
 import json
 
 
@@ -1187,6 +1232,8 @@ def revert_checkpoint_conversion_mapping(name: str, key_mapping: dict[str, str])
 
     Uses ``re.sub`` so both simple prefix patterns (``^model.language_model``)
     and complex regex patterns (``^model\\.(?!language_model\\.)``) are handled.
+    Upstream implementation strips ``^`` anchors and parenthesized groups from
+    source patterns before substitution to correctly handle complex regex.
     """
     if "," in name:
         return ",".join(revert_checkpoint_conversion_mapping(part, key_mapping) for part in name.split(","))
@@ -1195,16 +1242,12 @@ def revert_checkpoint_conversion_mapping(name: str, key_mapping: dict[str, str])
         if isinstance(target_patterns, str):
             target_patterns = [target_patterns]
         for target_pattern in target_patterns:
-            try:
-                new_name, n_replace = re.subn(source_pattern, target_pattern, name)
-            except re.error:
-                continue
+            source_pattern = source_pattern.lstrip("^")  # strip off un-needed chars and patterns
+            source_pattern = re.sub(r"\(.*\)", "", source_pattern)
+            name, n_replace = re.subn(source_pattern, target_pattern, name)
+            # Early exit of the loop
             if n_replace > 0:
-                # Guard against double-conversion: skip if name already
-                # starts with the target (after backref substitution).
-                target_clean = re.sub(r"\\d+", "", target_pattern)
-                if not new_name.startswith(target_clean):
-                    return new_name
+                return name
     return name
 
 
@@ -1234,14 +1277,16 @@ def preserve_original_visual_block_name(original_name: str | None, reverted_name
         # composite "model.visual.*" path.
         if original_part.startswith("model.visual."):
             preserved_parts.append(original_part)
-        # For language model blocks: keep both the original "model.language_model.*"
-        # form and the reverted "model.layers*" form, since loaders may expect either.
+        # SPARK DIVERGENCE from upstream: added `reverted_part == original_part`
+        # to handle the no-op case where checkpoint conversion doesn't change the name.
+        # Upstream only checks `reverted_part.startswith("model.layers")`.
+        # The conditional append avoids duplicate entries when no-op.
         elif original_part.startswith("model.language_model.") and (
             reverted_part.startswith("model.layers")
-            or reverted_part == original_part
+            or reverted_part == original_part  # SPARK: handle no-op case
         ):
             preserved_parts.append(original_part)
-            if reverted_part != original_part:
+            if reverted_part != original_part:  # SPARK: avoid duplicate
                 preserved_parts.append(reverted_part)
         else:
             preserved_parts.append(reverted_part)

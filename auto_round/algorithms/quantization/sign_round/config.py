@@ -59,7 +59,7 @@ class SignRoundConfig(QuantizationConfig):
             self.iters = 200
 
         if not lr:
-            # TODO need to check 4 bits lr setting for auto-round-best, 3bits only validate on small models
+            # 3-bit models use lr=2.0/iters for better accuracy (validated on small models).
             if self.iters >= 1000 and self.bits is not None and self.bits <= 3:
                 self.lr = 2.0 / self.iters
                 logger.info("set the lr to 2.0/iters for better accuracy")

@@ -1127,43 +1127,9 @@ class BaseCompressor(object):
                     "Please ensure that your configuration is supported."
                 )
 
-            serialization_dict = asdict(SerializedCompressorConfig())
-            for key in serialization_dict:
-                serialization_dict[key] = getattr(self, key, serialization_dict[key])
-            from auto_round.version import __version__
-
-            serialization_dict["autoround_version"] = __version__
-            if serialization_dict.get("to_quant_block_names") is None and self.quantizer.quant_block_list:
-                serialization_dict["to_quant_block_names"] = extract_block_names_to_str(self.quantizer.quant_block_list)
-            if "scale_dtype" in serialization_dict.keys():
-                serialization_dict["scale_dtype"] = str(serialization_dict["scale_dtype"])
-
-            original_to_quant_block_names = serialization_dict.get("to_quant_block_names")
-            if isinstance(original_to_quant_block_names, list):
-                original_to_quant_block_names = original_to_quant_block_names[:]
-
-            # to match the original name
-            reverse_checkpoint_conversion_mapping = get_reverse_checkpoint_conversion_mapping(self.model)
-
-            if isinstance(serialization_dict["to_quant_block_names"], str):
-                reverted_block_name = revert_checkpoint_conversion_mapping(
-                    serialization_dict["to_quant_block_names"], reverse_checkpoint_conversion_mapping
-                )
-                serialization_dict["to_quant_block_names"] = preserve_original_visual_block_name(
-                    original_to_quant_block_names, reverted_block_name
-                )
-
-            elif isinstance(serialization_dict["to_quant_block_names"], list):
-                for idx in range(len(serialization_dict["to_quant_block_names"])):
-                    reverted_block_name = revert_checkpoint_conversion_mapping(
-                        serialization_dict["to_quant_block_names"][idx], reverse_checkpoint_conversion_mapping
-                    )
-                    original_block_name = None
-                    if isinstance(original_to_quant_block_names, list) and idx < len(original_to_quant_block_names):
-                        original_block_name = original_to_quant_block_names[idx]
-                    serialization_dict["to_quant_block_names"][idx] = preserve_original_visual_block_name(
-                        original_block_name, reverted_block_name
-                    )
+            serialization_dict = self._build_quantization_config(
+                backend=kwargs.get("backend", "auto_round:auto_gptq")
+            )
 
             compressed_model = format.save_quantized(
                 save_folder,
@@ -1216,6 +1182,132 @@ class BaseCompressor(object):
             output_dir,
             model_name.split("/")[-1] + "-int4-AutoRound",
         )
+
+    def _build_quantization_config(self, backend: str = "auto_round:auto_gptq") -> dict:
+        """Build the complete quantization_config dict from serialization state.
+
+        This is the single source of truth for config construction, used by both
+        ``save_quantized()`` and ``_save_config_dry_run()``.
+
+        Args:
+            backend: The packing backend to use. Defaults to "auto_round:auto_gptq".
+
+        Returns:
+            The complete quantization_config dict ready for serialization.
+        """
+        from auto_round.export.utils import filter_quantization_config
+        from auto_round.utils import (
+            check_start_with_block_name,
+            to_standard_regex,
+        )
+        from auto_round.export.export_to_autoround.utils import check_neq_config
+
+        # Step 1: Build serialization dict from SerializedCompressorConfig
+        serialization_dict = asdict(SerializedCompressorConfig())
+        for key in serialization_dict:
+            serialization_dict[key] = getattr(self, key, serialization_dict[key])
+        from auto_round.version import __version__
+        serialization_dict["autoround_version"] = __version__
+
+        # Fallback: extract block names if to_quant_block_names is None
+        if serialization_dict.get("to_quant_block_names") is None and self.quantizer.quant_block_list:
+            serialization_dict["to_quant_block_names"] = extract_block_names_to_str(
+                self.quantizer.quant_block_list
+            )
+
+        # Convert scale_dtype to string
+        if "scale_dtype" in serialization_dict:
+            serialization_dict["scale_dtype"] = str(serialization_dict["scale_dtype"])
+
+        # Step 2: Revert block names to checkpoint format
+        original_to_quant_block_names = serialization_dict.get("to_quant_block_names")
+        if isinstance(original_to_quant_block_names, list):
+            original_to_quant_block_names = original_to_quant_block_names[:]
+
+        reverse_mapping = get_reverse_checkpoint_conversion_mapping(self.model)
+
+        if isinstance(serialization_dict["to_quant_block_names"], str):
+            reverted = revert_checkpoint_conversion_mapping(
+                serialization_dict["to_quant_block_names"], reverse_mapping
+            )
+            serialization_dict["to_quant_block_names"] = preserve_original_visual_block_name(
+                original_to_quant_block_names, reverted
+            )
+        elif isinstance(serialization_dict["to_quant_block_names"], list):
+            for idx in range(len(serialization_dict["to_quant_block_names"])):
+                reverted = revert_checkpoint_conversion_mapping(
+                    serialization_dict["to_quant_block_names"][idx], reverse_mapping
+                )
+                orig = None
+                if isinstance(original_to_quant_block_names, list) and idx < len(original_to_quant_block_names):
+                    orig = original_to_quant_block_names[idx]
+                serialization_dict["to_quant_block_names"][idx] = preserve_original_visual_block_name(
+                    orig, reverted
+                )
+
+        # Step 3: Build quantization_config
+        quantization_config = serialization_dict
+
+        # Backend fix for sym
+        if (
+            (quantization_config.get("sym") is None or quantization_config.get("sym"))
+            and ("gptq" not in backend and "awq" not in backend)
+        ):
+            backend = backend.replace("auto_round", "auto_round:auto_gptq")
+
+        quantization_config["block_name_to_quantize"] = quantization_config.pop("to_quant_block_names", None)
+        quantization_config["quant_method"] = "auto-round"
+        quantization_config["packing_format"] = backend
+
+        # Step 4: Build extra_config from layer_config
+        extra_config = {}
+        block_name_to_quantize = quantization_config["block_name_to_quantize"]
+        if isinstance(block_name_to_quantize, str):
+            block_name_to_quantize = [name.strip() for name in block_name_to_quantize.split(",")]
+        elif isinstance(block_name_to_quantize, list):
+            block_name_to_quantize = [
+                os.path.commonprefix(item).rstrip(".") if isinstance(item, list) else item
+                for item in block_name_to_quantize
+            ]
+
+        scheme_keys = [f.name for f in fields(QuantizationScheme)]
+        # Apply checkpoint conversion mapping to layer names for extra_config
+        forward_mapping = get_reverse_checkpoint_conversion_mapping(self.model)
+        for layer_name, cfg in self.quantizer.layer_config.items():
+            # Convert layer name from PyTorch format to checkpoint format
+            ckpt_layer_name = apply_checkpoint_conversion_mapping(layer_name, forward_mapping)
+            if not cfg["in_blocks"] and cfg["bits"] <= 8:  # lm head
+                extra_config[ckpt_layer_name] = {key: cfg.get(key) for key in scheme_keys}
+            elif cfg["in_blocks"] or (
+                block_name_to_quantize is not None
+                and check_start_with_block_name(layer_name, block_name_to_quantize)
+            ):
+                neq_keys = check_neq_config(cfg, **{k: quantization_config.get(k) for k in scheme_keys})
+                if len(neq_keys) > 0:
+                    extra_config[ckpt_layer_name] = {}
+                    for key in neq_keys:
+                        if cfg.get(key) is not None:
+                            extra_config[ckpt_layer_name][key] = cfg[key]
+
+        # Handle regex_config
+        regex_config = quantization_config.pop("regex_config", None)
+        if regex_config is not None:
+            for name, cfg in regex_config.items():
+                regex_name = to_standard_regex(name)
+                neq_keys = check_neq_config(cfg, **{k: quantization_config.get(k) for k in scheme_keys})
+                if len(neq_keys) > 0:
+                    extra_config[regex_name] = {}
+                    for key in neq_keys:
+                        if cfg.get(key) is not None:
+                            extra_config[regex_name][key] = cfg[key]
+
+        if len(extra_config) > 0:
+            quantization_config["extra_config"] = extra_config
+
+        # Step 5: Clean up config (remove defaults)
+        filter_quantization_config(quantization_config)
+
+        return quantization_config
 
     def quantize_and_save(
         self, output_dir: str = "tmp_autoround", format: str = None, inplace: bool = True, **kwargs
@@ -1309,204 +1401,46 @@ class BaseCompressor(object):
         """
         import json
 
-        from auto_round.export.utils import filter_quantization_config
-        from auto_round.utils import (
-            check_start_with_block_name,
-            to_standard_regex,
-        )
-        from auto_round.export.export_to_autoround.utils import check_neq_config
-
         os.makedirs(output_dir, exist_ok=True)
 
         logger.info("=" * 60)
-        logger.info("[dry-run] DRY-RUN MODE: building serialization dict + config files")
+        logger.info("[dry-run] DRY-RUN MODE: building config files only")
         logger.info("=" * 60)
 
-        # ── Step 1: Build serialization dict (mirrors save_quantized lines 1115-1145) ──
-        serialization_dict = asdict(SerializedCompressorConfig())
-        for key in serialization_dict:
-            serialization_dict[key] = getattr(self, key, serialization_dict[key])
-
-        from auto_round.version import __version__
-        serialization_dict["autoround_version"] = __version__
-
-        # Fallback: extract block names if to_quant_block_names is None
-        if serialization_dict.get("to_quant_block_names") is None and self.quantizer.quant_block_list:
-            serialization_dict["to_quant_block_names"] = extract_block_names_to_str(
-                self.quantizer.quant_block_list
-            )
-
-        # Convert scale_dtype to string
-        if "scale_dtype" in serialization_dict:
-            serialization_dict["scale_dtype"] = str(serialization_dict["scale_dtype"])
-
-        logger.info(
-            f"[dry-run] Step 3 — serialization_dict built:\n"
-            f"  to_quant_block_names = {serialization_dict.get('to_quant_block_names')!r}\n"
-            f"  keys = {list(serialization_dict.keys())[:10]}..."
+        # Build the quantization config using the shared helper
+        quantization_config = self._build_quantization_config(
+            backend=kwargs.get("backend", "auto_round:auto_gptq")
         )
 
-        # Save original block names before conversion
-        original_to_quant_block_names = serialization_dict.get("to_quant_block_names")
-        if isinstance(original_to_quant_block_names, list):
-            original_to_quant_block_names = original_to_quant_block_names[:]
-
-        # Apply checkpoint conversion mapping
-        reverse_checkpoint_conversion_mapping = get_reverse_checkpoint_conversion_mapping(self.model)
-
         logger.info(
-            f"[dry-run] Step 4 — reverse_checkpoint_conversion_mapping:\n"
-            f"  mapping = {reverse_checkpoint_conversion_mapping}"
-        )
-
-        if isinstance(serialization_dict["to_quant_block_names"], str):
-            reverted_block_name = revert_checkpoint_conversion_mapping(
-                serialization_dict["to_quant_block_names"],
-                reverse_checkpoint_conversion_mapping,
-            )
-            serialization_dict["to_quant_block_names"] = preserve_original_visual_block_name(
-                original_to_quant_block_names, reverted_block_name
-            )
-            logger.info(
-                f"[dry-run] Step 5 — revert_checkpoint_conversion_mapping():\n"
-                f"  input = {original_to_quant_block_names!r}\n"
-                f"  result = {serialization_dict['to_quant_block_names']!r}"
-            )
-        elif isinstance(serialization_dict["to_quant_block_names"], list):
-            for idx in range(len(serialization_dict["to_quant_block_names"])):
-                reverted_block_name = revert_checkpoint_conversion_mapping(
-                    serialization_dict["to_quant_block_names"][idx],
-                    reverse_checkpoint_conversion_mapping,
-                )
-                original_block_name = None
-                if isinstance(original_to_quant_block_names, list) and idx < len(original_to_quant_block_names):
-                    original_block_name = original_to_quant_block_names[idx]
-                serialization_dict["to_quant_block_names"][idx] = preserve_original_visual_block_name(
-                    original_block_name, reverted_block_name
-                )
-            logger.info(
-                f"[dry-run] Step 6 — preserve_original_visual_block_name():\n"
-                f"  result = {serialization_dict['to_quant_block_names']!r}"
-            )
-
-        # ── Step 2: Build quantization_config (mirrors save_quantized_as_autoround lines 273-335) ──
-        quantization_config = serialization_dict
-
-        # Backend fix for sym (same as save_quantized_as_autoround)
-        backend = kwargs.get("backend", "auto_round:auto_gptq")
-        if (
-            (quantization_config.get("sym") is None or quantization_config.get("sym"))
-            and ("gptq" not in backend and "awq" not in backend)
-        ):
-            backend = backend.replace("auto_round", "auto_round:auto_gptq")
-
-        quantization_config["block_name_to_quantize"] = quantization_config.pop("to_quant_block_names", None)
-        quantization_config["quant_method"] = "auto-round"
-        quantization_config["packing_format"] = backend
-
-        logger.info(
-            f"[dry-run] Step 7 — quantization_config:\n"
-            f"  block_name_to_quantize = {quantization_config['block_name_to_quantize']!r}\n"
-            f"  quant_method = {quantization_config.get('quant_method')!r}\n"
-            f"  packing_format = {quantization_config.get('packing_format')!r}"
-        )
-
-        # Build extra_config from layer_config
-        extra_config = {}
-        block_name_to_quantize = quantization_config["block_name_to_quantize"]
-        if isinstance(block_name_to_quantize, str):
-            block_name_to_quantize = [name.strip() for name in block_name_to_quantize.split(",")]
-        elif isinstance(block_name_to_quantize, list):
-            block_name_to_quantize = [
-                os.path.commonprefix(item).rstrip(".") if isinstance(item, list) else item
-                for item in block_name_to_quantize
-            ]
-
-        scheme_keys = [f.name for f in fields(QuantizationScheme)]
-        # Apply checkpoint conversion mapping to layer names for extra_config
-        forward_mapping = get_reverse_checkpoint_conversion_mapping(self.model)
-        for layer_name, cfg in self.quantizer.layer_config.items():
-            # Convert layer name from PyTorch format to checkpoint format
-            ckpt_layer_name = apply_checkpoint_conversion_mapping(layer_name, forward_mapping)
-            if not cfg["in_blocks"] and cfg["bits"] <= 8:  # lm head
-                extra_config[ckpt_layer_name] = {key: cfg.get(key) for key in scheme_keys}
-            elif cfg["in_blocks"] or (
-                block_name_to_quantize is not None
-                and check_start_with_block_name(layer_name, block_name_to_quantize)
-            ):
-                neq_keys = check_neq_config(cfg, **{k: quantization_config.get(k) for k in scheme_keys})
-                if len(neq_keys) > 0:
-                    extra_config[ckpt_layer_name] = {}
-                    for key in neq_keys:
-                        if cfg.get(key) is not None:
-                            extra_config[ckpt_layer_name][key] = cfg[key]
-
-        # Handle regex_config
-        regex_config = quantization_config.pop("regex_config", None)
-        if regex_config is not None:
-            for name, cfg in regex_config.items():
-                regex_name = to_standard_regex(name)
-                neq_keys = check_neq_config(cfg, **{k: quantization_config.get(k) for k in scheme_keys})
-                if len(neq_keys) > 0:
-                    extra_config[regex_name] = {}
-                    for key in neq_keys:
-                        if cfg.get(key) is not None:
-                            extra_config[regex_name][key] = cfg[key]
-
-        if len(extra_config) > 0:
-            quantization_config["extra_config"] = extra_config
-
-        ec_keys = list(extra_config.keys())[:3]
-        logger.info(
-            f"[dry-run] Step 8 — extra_config:\n"
-            f"  total layers = {len(extra_config)}\n"
-            f"  first 3 keys = {ec_keys}"
-        )
-
-        # Clean up config (remove defaults)
-        filter_quantization_config(quantization_config)
-
-        logger.info(
-            f"[dry-run] Step 9 — final quantization_config:\n"
+            f"[dry-run] quantization_config built:\n"
             f"  block_name_to_quantize = {quantization_config.get('block_name_to_quantize')!r}\n"
-            f"  has extra_config = {'extra_config' in quantization_config}\n"
-            f"  keys = {list(quantization_config.keys())}"
+            f"  quant_method = {quantization_config.get('quant_method')!r}\n"
+            f"  packing_format = {quantization_config.get('packing_format')!r}\n"
+            f"  has extra_config = {'extra_config' in quantization_config}"
         )
 
-        # ── Step 3: Write config files ──
+        # Write config files
         model = self.model_context.model
         if hasattr(model, "config"):
             model.config.quantization_config = quantization_config
-            model.config.save_pretrained(output_dir)
 
-        # Write quantization_config.json separately (same as save_quantized_as_autoround)
-        quantization_config_path = os.path.join(output_dir, "quantization_config.json")
-        with open(quantization_config_path, "w", encoding="utf-8") as f:
-            json.dump(quantization_config, f, indent=2, ensure_ascii=False)
+        config_path = os.path.join(output_dir, "config.json")
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(model.config.to_dict(), f, indent=2, default=str)
+        logger.info(f"[dry-run] Wrote {config_path}")
 
-        # Save tokenizer and processor if available
+        qconfig_path = os.path.join(output_dir, "quantization_config.json")
+        with open(qconfig_path, "w", encoding="utf-8") as f:
+            json.dump(quantization_config, f, indent=2, default=str)
+        logger.info(f"[dry-run] Wrote {qconfig_path}")
+
+        # Copy tokenizer files if present
         tokenizer = self.model_context.tokenizer
-        if tokenizer is not None and hasattr(tokenizer, "save_pretrained"):
+        if tokenizer is not None:
             tokenizer.save_pretrained(output_dir)
-        processor = kwargs.get("processor", None)
-        if processor is not None and hasattr(processor, "save_pretrained"):
-            processor.save_pretrained(output_dir)
-        image_processor = kwargs.get("image_processor", None)
-        if image_processor is not None and hasattr(image_processor, "save_pretrained"):
-            image_processor.save_pretrained(output_dir)
-
-        # Copy extra model files (processor_config.json, etc.)
-        from auto_round.utils.model.load import _copy_extra_model_files
-        model_name_or_path = getattr(model.config, "_name_or_path", None)
-        if model_name_or_path and os.path.isdir(model_name_or_path):
-            _copy_extra_model_files(model_name_or_path, output_dir)
-
-        logger.info(
-            f"[dry-run] Step 10 — files written:\n"
-            f"  config.json -> {os.path.join(output_dir, 'config.json')}\n"
-            f"  quantization_config.json -> {quantization_config_path}"
-        )
+            logger.info(f"[dry-run] Saved tokenizer to {output_dir}")
 
         logger.info("=" * 60)
-        logger.info(f"[dry-run] DONE: config files written to {output_dir}")
+        logger.info("[dry-run] DRY-RUN COMPLETE: config files written, no weights saved")
         logger.info("=" * 60)

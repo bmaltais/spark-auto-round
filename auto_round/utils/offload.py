@@ -147,6 +147,7 @@ def _resolve_model_dir(model_dir: str) -> str:
 
         return snapshot_download(model_dir, local_files_only=True)
     except Exception:
+        logger.debug("_resolve_model_dir failed for %s", model_dir, exc_info=True)
         return model_dir
 
 
@@ -314,7 +315,7 @@ class OffloadManager:
         try:
             self.cleanup(_skip_reload=True)
         except Exception:
-            pass
+            logger.debug("OffloadManager.__del__ cleanup failed", exc_info=True)
 
     def __call__(
         self,
@@ -462,6 +463,7 @@ class OffloadManager:
                             os.remove(old_path)
                         except Exception as e:
                             logger.warning(f"OffloadManager: could not remove {old_path}: {e}")
+                            logger.debug("remove failed", exc_info=True)
             elif skip_if_saved and name in self._saved:
                 return
             self._save_to_disk(name, module)
@@ -652,6 +654,7 @@ class OffloadManager:
                 self.reload(self._model_ref)
             except Exception as e:
                 logger.warning(f"OffloadManager: auto-reload during cleanup failed: {e}")
+                logger.debug("auto-reload failed", exc_info=True)
         self._cleanup_tempdir()
         self._saved = {}
         self._current_loaded = None
@@ -717,6 +720,7 @@ class OffloadManager:
             del state_dict
         except Exception as e:
             logger.warning(f"OffloadManager: failed to save {name}: {e}")
+            logger.debug("save_to_disk failed", exc_info=True)
 
     def _load_from_disk(self, name: str, module: torch.nn.Module) -> None:
         metadata = self._saved.get(name)
@@ -731,6 +735,7 @@ class OffloadManager:
             _load_state_dict_into_module(state_dict, module)
         except Exception as e:
             logger.warning(f"OffloadManager: failed to load {name}: {e}")
+            logger.debug("load_from_disk failed", exc_info=True)
 
     def _remove_saved_entry(self, name: str) -> None:
         """Remove a single saved entry and its temp file; clean tempdir if empty."""
@@ -742,6 +747,7 @@ class OffloadManager:
                     os.remove(path)
                 except Exception as e:
                     logger.warning(f"OffloadManager: could not remove {path}: {e}")
+                    logger.debug("remove_saved_entry failed", exc_info=True)
         if not self._saved:
             self._cleanup_tempdir()
 
@@ -753,6 +759,7 @@ class OffloadManager:
                 shutil.rmtree(self._tempdir)
             except Exception as e:
                 logger.warning(f"OffloadManager: cleanup failed for {self._tempdir}: {e}")
+                logger.debug("cleanup_tempdir failed", exc_info=True)
             # Remove the parent offload/ directory if it is now empty
             if parent and os.path.isdir(parent):
                 try:
@@ -787,6 +794,7 @@ class OffloadManager:
             logger.warning(
                 f"OffloadManager: failed to build weight map, skipping clear to preserve dynamic params: {e}"
             )
+            logger.debug("_get_restorable_params failed", exc_info=True)
             return set()
         prefix = block_name + "."
         return {k[len(prefix) :] for k in weight_map if k.startswith(prefix)}

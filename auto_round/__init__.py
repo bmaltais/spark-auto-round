@@ -15,7 +15,9 @@ from auto_round.autoround import AutoRound
 from auto_round.schemes import QuantizationScheme
 from auto_round.utils import LazyImport
 from auto_round.utils import monkey_patch
-
+# WARNING: monkey_patch() modifies transformers internals at import time.
+# This includes patching AutoModelForCausalLM and related classes.
+# See AGENTS.md for details.
 monkey_patch()
 
 from .version import __version__

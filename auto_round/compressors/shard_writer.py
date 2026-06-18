@@ -38,13 +38,11 @@ class ShardWriter:
     _instance = None
     _initialized = False
 
-    model = None
-    lm_head_name = None
-
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._data = {}
+            cls._instance.model = None
+            cls._instance.lm_head_name = None
         return cls._instance
 
     def __init__(
@@ -55,7 +53,15 @@ class ShardWriter:
         safe_serialization=True,
     ):
         if ShardWriter._initialized:
-            return
+            if self.model is not model:
+                logger.warning(
+                    "ShardWriter reinitialized with a different model; "
+                    "the previous instance is being replaced."
+                )
+                ShardWriter._initialized = False
+                # Fall through to re-initialize
+            else:
+                return
         self.model = model
         self.lm_head_name = get_lm_head_name(self.model)
         total_params = sum(p.numel() for p in self.model.parameters())
@@ -308,7 +314,6 @@ class ShardWriter:
         if hasattr(self.model, "config") and hasattr(self.model.config, "tie_word_embeddings"):
             tie_word_embeddings = self.model.config.tie_word_embeddings
 
-        finalize_skipped_meta_tensors = []
         for pname, tensor in full_sd.items():
             if pname in self._all_saved:
                 continue
@@ -323,9 +328,9 @@ class ShardWriter:
 
         self._flush_shard()
 
-        total_skipped = len(self.skipped_meta_tensors) + len(finalize_skipped_meta_tensors)
+        total_skipped = len(self.skipped_meta_tensors)
         if total_skipped > 0:
-            examples = (self.skipped_meta_tensors + finalize_skipped_meta_tensors)[:5]
+            examples = self.skipped_meta_tensors[:5]
 
         # 2. Rename temp files to HF standard and map weights
         if self.shard_counter == 0:
@@ -368,7 +373,7 @@ class ShardWriter:
 
     @torch.no_grad()
     def write(self, m: torch.nn.Module = None, name: str = None, is_finalize: bool = False):
-        if m is None and name is None and not is_finalize and not is_finalize:
+        if m is None and name is None and not is_finalize:
             raise ValueError("Must specify either name or m")
         if m is None and name is not None:
             m = get_module(self.model, name)

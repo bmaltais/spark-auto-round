@@ -174,7 +174,6 @@ class QuantLinear(nn.Module):
             final_scale = scales.to(torch.float8_e4m3fn)
 
         self.weight_scale = final_scale
-        # self.weight =  get_compressed_weight(scaled_tensor, self.bits, self.data_type) ## TODO
         if self.bits == 8:
             compress_dtype = torch.float8_e4m3fn
             self.weight = scaled_tensor.to(compress_dtype)

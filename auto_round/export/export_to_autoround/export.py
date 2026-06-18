@@ -232,7 +232,7 @@ def save_quantized_as_autoround(
     tokenizer: Callable = None,
     layer_config: dict = None,
     inplace=True,
-    backend="auto_round:exllamav2",
+    backend="auto_round:auto_gptq",
     device: Union[str, torch.device] = "cpu",
     serialization_dict: dict = None,
     **kwargs,
@@ -245,7 +245,7 @@ def save_quantized_as_autoround(
         inplace (bool, optional): If True, modifies the model in place. Otherwise, creates a deepcopy of the model.
                                 Default is True.
         backend (str, optional): The backend to be used for quantization.
-                                  Default is "autoround:exllamav2".
+                                  Default is "auto_round:auto_gptq".
         **kwargs: Additional keyword arguments including:
             - model (nn.Module): The model to be quantized.
             - layer_config (dict): The layer configuration for each layer.
@@ -302,7 +302,7 @@ def save_quantized_as_autoround(
                     if cfg.get(key) is not None:
                         extra_config[layer_name][key] = cfg[key]
 
-    regex_config = quantization_config.pop("regex_config")
+    regex_config = quantization_config.pop("regex_config", None)
     if regex_config is not None:
         for name, cfg in regex_config.items():
             regex_name = to_standard_regex(name)

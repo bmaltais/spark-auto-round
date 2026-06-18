@@ -7,7 +7,7 @@ Fork of [Intel auto-round](https://github.com/intel/auto-round) trimmed to CUDA 
 ## Dev setup
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python -m venv ~/spark-auto-round-venv && source ~/spark-auto-round-venv/bin/activate
 uv pip install -e .          # editable install
 uv pip install pytest        # test runner (not in install_requires)
 ```

@@ -211,7 +211,6 @@ def tiny_llama4_model_path():
 
     model_name = get_model_path("meta-llama/Llama-4-Scout-17B-16E-Instruct")
     config = transformers.AutoConfig.from_pretrained(model_name, trust_remote_code=True)
-    # TODO: Remove after https://github.com/huggingface/transformers/issues/43525 is resolved
     config.pad_token_id = None
     config.vision_config.num_hidden_layers = 1  # Reduce layers for testing
     config.text_config.num_hidden_layers = 1
