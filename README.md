@@ -6,23 +6,23 @@
 ![CUDA](https://img.shields.io/badge/CUDA-required-orange)
 ![GB10](https://img.shields.io/badge/hardware-GB10-purple)
 
-> int4 AutoRound quantization for GB10 hardware
+> Int4 AutoRound quantization for GB10 hardware
 
 # NOTE
 
 This is new software under active development. I am working my way up from Qwen 0.8b -> 27B -> 35B, 122B -> Gemma etc. I will post updates with verified results on specific models here:  
 
-| Model | Tested | Score | t/s | Quantization Time |
-|-------|--------|-------|-----|-------------------|
-| Qwen 3.5 0.8b      | ✔︎ | 67 | 205.6 | |
-| Qwen 3.6 27b       | ✔︎ | 92 | 26.4  | |
-| Qwen 3.6 35b a3b   | ✔︎ | 91 | 64.7  | 11:38 |
-| Qwen 3.5 122b a10b |   |    | |
-| Gemma 4 12b        |   |    | |
+| Model | Tested | Score |
+|-------|--------|-------|
+| Qwen 3.5 0.8b      | ✔︎ | 67 |
+| Qwen 3.6 27b       | ✔︎ | 92 |
+| Qwen 3.6 35b a3b   |   |    |
+| Qwen 3.5 122b a10b |   |    |
+| Gemma 4 12b        |   |    |
 
 ## What is this?
 
-**Spark Auto Round** is an optimally pre-configured int4 AutoRound quantization command line tool that is straightforward to use -- no tweaking necessary. This is a trimmed-down version of Intel's [auto-round](https://github.com/intel/auto-round) focused on **CUDA**, `torch.compile`, and **int4 AutoRound (W4A16)** targeting the **DGX Spark - GB10 128GiB unified memory** architecture.
+**Spark Auto Round** is an optimally pre-configured Int4 AutoRound quantization command line tool that is straightforward to use -- no tweaking necessary. This is a trimmed-down version of Intel's [auto-round](https://github.com/intel/auto-round) focused on **CUDA**, `torch.compile`, and **Int4 AutoRound (W4A16)** targeting the **DGX Spark - GB10 128GiB unified memory** architecture.
 
 **Spark ASAQ Substitute** is an experimental companion tool that performs Adaptive Sensitivity-Aware Quantization by taking layer-wise Cosine Similarity, Peak Signal-to-Noise Ratio and for MOE models Router Jaccard Similarity, to replace sensitive layers with FP16 layers from the original model.
 
@@ -32,11 +32,11 @@ Intel’s AutoRound works exceptionally well on the DGX Spark and its GB10 sibli
 
 ## What is AutoRound?
 
-Intel’s AutoRound is a technique used to quantize 16-bit models down to 4-bit. AutoRound uses signed gradient descent to jointly optimize weight rounding and clipping ranges. Mixture-of-Experts models are notoriously sensitive to quantization. AutoRound preserves the “distribution” of the weights rather than just the values, keeping the MoE logic intact even at 4-bit. The weights effectively halve the model size compared to FP8. Subsequently the Blackwell GPU needs less bandwidth to pull these weights from the unified pool. Once they reach the GPU, the Tensor Cores dequantizes iNT4 weights into bfloat16 on-the-fly for the actual math, giving the speed of 4-bit with the precision of 16-bit calculations. int4 AutoRound quantization allows large models to run with ample room for speculative decoding and the KV cache.
+Intel’s AutoRound is a technique used to quantize 16-bit models down to 4-bit. AutoRound uses signed gradient descent to jointly optimize weight rounding and clipping ranges. Mixture-of-Experts models are notoriously sensitive to quantization. AutoRound preserves the “distribution” of the weights rather than just the values, keeping the MoE logic intact even at 4-bit. The weights effectively halve the model size compared to FP8. Subsequently the Blackwell GPU needs less bandwidth to pull these weights from the unified pool. Once they reach the GPU, the Tensor Cores dequantizes INT4 weights into bfloat16 on-the-fly for the actual math, giving the speed of 4-bit with the precision of 16-bit calculations. Int4 AutoRound quantization allows large models to run with ample room for speculative decoding and the KV cache.
 
 ## Why not NVFP4?
 
-To run comparative benchmarks and compare and contrast quantized models we need the best version of each quantization technique for reference. This is my attempt to provide the GB10 community with optimal int4 AutoRound models.
+To run comparative benchmarks and compare and contrast quantized models we need the best version of each quantization technique for reference. This is my attempt to provide the GB10 community with optimal Int4 AutoRound models.
 
 ## Features
 
@@ -85,35 +85,12 @@ Spark auto round repeatedly achieved a [92/100](docs/test-score.md) tool-eval-be
 
 | # | Model | Scheme | Dataset | Score | t/s | Rating | P/F | Tokens |
 |---|-------|--------|---------|-------|-----|--------|-----|--------|
-|🥇 | **qwen3.6-27b-sar-oc-mpt** | **int4** | OpenCode Instruct | **92** | 26.4 | ★★★★★ | 59/9/1 | 284K |
-|🥈 | qwen3.6-27b-sar-oc-dflash | int4 | OpenCode Instruct | 90 | **38.1** | ★★★★★ | 57/10/2 | 265K |
+|🥇 | **qwen3.6-27b-sar-oc-mpt** | **Int4** | OpenCode Instruct | **92** | 26.4 | ★★★★★ | 59/9/1 | 284K |
+|🥈 | qwen3.6-27b-sar-oc-dflash | Int4 | OpenCode Instruct | 90 | **38.1** | ★★★★★ | 57/10/2 | 265K |
 |🥉 | qwen/qwen3.6-27b-fp8 | fp8 | - | 88 | 18.1 | ★★★★ | 57/8/4 | 275K |
-| 4 | qwen3.6-27b-sar-oc | int4 | OpenCode Instruct | 88 | 12.5 | ★★★★ | 57/8/4 | 275K |
-| 5 | qwen3.6-27b-sar-git-mtp | int4 | Github Code Clean | 86 | 26.2 | ★★★★ | 54/10/5 | 268K |
+| 4 | qwen3.6-27b-sar-oc | Int4 | OpenCode Instruct | 88 | 12.5 | ★★★★ | 57/8/4 | 275K |
+| 5 | qwen3.6-27b-sar-git-mtp | Int4 | Github Code Clean | 86 | 26.2 | ★★★★ | 54/10/5 | 268K |
 | 6 | qwen/qwen3.6-27b | bf16 | - | 83 | 11.4 | ★★★★ | 53/9/7 | 243K |
-
-## Performance with Qwen 3.6 35b a3b
-
-| # | Model            | Scheme  | Dataset | Score | t/s  | Rating | P/F    | Tokens |
-|---|------------------|---------|---------|-------|------|--------|--------|--------|
-|🥇 | qwen3.6-35b-sar-bf16 | int4 | OpenCode Instruct | 93 | 65.4 | ★★★★★ | 60/8/1 | 275K |
-|🥈 | qwen3.6-35b-sar-mtp | int4 | OpenCode Instruct | 91 | 78.7 | ★★★★★ | 58/10/1 | 272K |
-|🥉 | qwen3.6-35b-sar  | int4    | OpenCode Instruct | 91 | 64.7 | ★★★★★ | 59/8/2 | 283K |
-| 4 | qwen3.6-35b-sar-pc | int4  | OpenCode Instruct | 91 | 64.5 | ★★★★★ | 59/8/2 | 284K |
-| 5 | qwen/qwen3.6-35b | bf16    | - | 91 | 28.3 | ★★★★★ | 59/8/2 | 292K |
-| 6 | qwen/qwen3.6-35b-fp8 | fp8 | - | 90 | 48.0 | ★★★★★ | 58/8/3 | 264K |
-| 7 | qwen3.6-35b-sar-dflash | int4 | OpenCode Instruct | 88 | 97.1 | ★★★★ | 55/11/3 | 282K |
-| 8 | qwen3.6-35b-sar-pc-mtp-bf16 | int4 | OpenCode Instruct | 47 | 73.4 | ★★ | 28/9/32 | 136K |
-| 9 | qwen3.6-35b-sar-pc-mtp | int4 | OpenCode Instruct | 44 | 109.1 | ★★ | 26/9/34 | 131K |
-|10 | qwen3.6-35b-sar-pc-dflash | int4 | OpenCode Instruct | 43 | 102.3 | ★★ | 25/9/35 | 133K |
-
-### Legend
-
-- `-sar` Spark Auto Round
-- `-pc` Prefix Caching
-- `-mtp` MTP=2 Speculative Decoding (MTP=1 with `-pc`)
-- `-dflash` DFlash=5 Speculative Decoding
-- `-bf16` bfloat16 data type
 
 ### Scripts and Recipes
 
@@ -186,7 +163,7 @@ spark-auto-round <model> [options]
 
 | Alias | Content | Notes |
 |-------|---------|-------------|
-| **[opencode-instruct](https://huggingface.co/nvidia/OpenCodeInstruct)** | Code instructions + responses | Packs short sequences; best for coding models |
+| [opencode-instruct](https://huggingface.co/nvidia/OpenCodeInstruct) | **(default)** Code instructions + responses | Packs short sequences; best for coding models |
 | [github-code-clean](https://huggingface.co/codeparrot/github-code-clean) | Source code | Downloads random parquet shards for diversity |
 | [pile-10k](https://huggingface.co/NeelNanda/pile-10k) | English general text | Classic calibration dataset |
 | [CCI3-HQ](https://huggingface.co/BAAI/CCI3-HQ) | Chinese web text | Streaming; good for Chinese models |
@@ -196,6 +173,8 @@ spark-auto-round <model> [options]
 | [mbpp](https://huggingface.co/datasets/google-research-datasets/mbpp) | Python problems + code | Text + code concatenated |
 | [AudioCaps](https://github.com/cdjkim/audiocaps) | Sound/music captions | Good for audio-related models |
 | [new-title-chinese](https://huggingface.co/datasets/madao33/new-title-chinese) | Chinese news headlines | For Chinese NLP tasks |
+
+**Tip:** Use `opencode-instruct` for coding models and `pile-10k` or `CCI3-HQ` for general-purpose models.
 
 ## Supported Format
 

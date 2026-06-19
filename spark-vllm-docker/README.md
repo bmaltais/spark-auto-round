@@ -24,9 +24,8 @@ Recipe YAML files in `recipes/` define how to serve each model:
 
 | Recipe | Model | Notes |
 |--------|-------|-------|
-| `local-qwen3.6-35b` | Qwen3.6-35B-A3B-int4-AutoRound | for production |
-| `local-qwen3.5-0.8b` | Qwen3.5-0.8B-int4-AutoRound | for testing |
-| `qwen3.5-0.8b` | Qwen/Qwen3.5-0.8B | for comparison |
+| `local-qwen3.6-0.8b` | Qwen3.5-0.8B-int4-AutoRound | for testing |
+| `qwen3.6-0.8b` | Qwen/Qwen3.5-0.8B | for comparison |
 
 ## Example
 

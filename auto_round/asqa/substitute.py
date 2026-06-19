@@ -348,52 +348,6 @@ def load_fp16_layers(
 # ---------------------------------------------------------------------------
 
 
-def _unfuse_expert_weights(
-    fused_name: str,
-    fused_tensor: torch.Tensor,
-    num_experts: int,
-) -> dict[str, torch.Tensor]:
-    """Unfuse a stacked expert weight tensor into individual expert tensors.
-
-    The FP16 model stores expert weights as a single stacked tensor:
-        ``experts.down_proj``: shape ``(num_experts, out_features, in_features)``
-        ``experts.gate_up_proj``: shape ``(num_experts, 2*intermediate, hidden)``
-
-    vllm's ``RoutedExperts`` expects individual per-expert weights:
-        ``experts.N.down_proj``
-        ``experts.N.gate_proj``
-        ``experts.N.up_proj``
-
-    Args:
-        fused_name: Full tensor name (e.g. ``model.language_model.layers.23.mlp.experts.down_proj``).
-        fused_tensor: Stacked weight tensor with shape ``(num_experts, ...)``.
-        num_experts: Number of routed experts.
-
-    Returns:
-        Dict mapping individual expert tensor names to their slices.
-    """
-    result: dict[str, torch.Tensor] = {}
-
-    # Determine which projection this is
-    if fused_name.endswith(".down_proj"):
-        base_name = fused_name[: -len(".down_proj")]
-        for expert_id in range(num_experts):
-            result[f"{base_name}.{expert_id}.down_proj"] = fused_tensor[expert_id]
-    elif fused_name.endswith(".gate_up_proj"):
-        base_name = fused_name[: -len(".gate_up_proj")]
-        # gate_up_proj is fused gate + up: split along the second dim
-        for expert_id in range(num_experts):
-            expert_weight = fused_tensor[expert_id]  # (2*intermediate, hidden)
-            mid = expert_weight.shape[0] // 2
-            result[f"{base_name}.{expert_id}.gate_proj"] = expert_weight[:mid]
-            result[f"{base_name}.{expert_id}.up_proj"] = expert_weight[mid:]
-    else:
-        # Unknown fused format — keep as-is and let vllm handle it
-        result[fused_name] = fused_tensor
-
-    return result
-
-
 def substitute_layers(
     weights: dict[str, torch.Tensor],
     fp16_layers: dict[str, torch.Tensor],
@@ -409,10 +363,8 @@ def substitute_layers(
       ``{layer}.*.bias``
     * **Keep** existing FP16 tensors (norms, linear_attn params)
 
-    Fused expert weights (``experts.down_proj``, ``experts.gate_up_proj``)
-    are automatically unfused into per-expert tensors (``experts.N.down_proj``,
-    ``experts.N.gate_proj``, ``experts.N.up_proj``) so that vllm's
-    ``RoutedExperts`` weight loader can find them.
+    vllm handles weight fusion internally via ``packed_modules_mapping``,
+    so we keep the original unfused tensor names.
 
     Args:
         weights: Full quantized model weights dict (**modified in place**).
@@ -449,23 +401,6 @@ def substitute_layers(
                 f"No FP16 tensors found for layer {idx}. "
                 "Check that layer exists in the FP16 model."
             )
-
-        # Step 3: Unfuse stacked expert weights into per-expert tensors
-        # Detect num_experts from the fused tensor shape
-        fused_keys = [
-            k for k in fp16_prefix_tensors
-            if k.endswith(".experts.down_proj") or k.endswith(".experts.gate_up_proj")
-        ]
-        num_experts = None
-        if fused_keys:
-            # Infer num_experts from the first fused tensor
-            first_fused = fp16_prefix_tensors[fused_keys[0]]
-            num_experts = first_fused.shape[0]
-
-        for fused_name in fused_keys:
-            fused_tensor = fp16_prefix_tensors.pop(fused_name)
-            unfused = _unfuse_expert_weights(fused_name, fused_tensor, num_experts)
-            fp16_prefix_tensors.update(unfused)
 
         weights.update(fp16_prefix_tensors)
 
@@ -665,10 +600,43 @@ def update_quantization_config(
         with open(config_path) as f:
             quant_config: dict[str, Any] = json.load(f)
     else:
-        quant_config = {}
+        # Fall back to config.json's quantization_config (auto-round stores
+        # the config there, not in a separate quantization_config.json).
+        config_json_path = os.path.join(output_dir, "config.json")
+        if os.path.exists(config_json_path):
+            with open(config_json_path) as f:
+                model_config: dict[str, Any] = json.load(f)
+            quant_config = model_config.get("quantization_config", {})
+        else:
+            quant_config = {}
 
     quant_config["substituted_layers"] = sorted(set(layer_indices))
     quant_config["substituted_dtype"] = "fp16"
+
+    # Switch quant_method from "auto-round" (INC) to "auto_gptq".
+    #
+    # Why: INC's get_quant_method returns UnquantizedLinearMethod() for
+    # bf16 layers, but RoutedExperts needs UnquantizedFusedMoEMethod.
+    # auto_gptq correctly handles this via get_moe_quant_method() which
+    # checks the dynamic config and returns UnquantizedFusedMoEMethod
+    # for layers marked with -: prefix.
+    #
+    # The dynamic config format:
+    #   {"-:model.language_model.layers.N.mlp.experts*": {}}
+    # Negative match (-: prefix) skips quantization for matching layers.
+    quant_config["quant_method"] = "auto_gptq"
+    if "desc_act" not in quant_config or quant_config["desc_act"] is None:
+        quant_config["desc_act"] = False
+    quant_config["dynamic"] = quant_config.get("dynamic", {})
+
+    # Add negative dynamic patterns for substituted MoE layers.
+    # Pattern must be valid regex: \.* for literal dots, .* for any chars.
+    for idx in layer_indices:
+        # "model.language_model.layers.23" -> "model\.language_model\.layers\.23"
+        escaped = _layer_prefix(idx).rstrip('.').replace('.', r'\.')
+        pattern = f"-:{escaped}.*"
+        if pattern not in quant_config["dynamic"]:
+            quant_config["dynamic"][pattern] = {}
 
     # Update extra_config to mark all substituted layer components as FP16.
     # This is critical for vLLM: without these entries, vLLM assumes the
@@ -720,6 +688,36 @@ def update_quantization_config(
 
     with open(config_path, "w") as f:
         json.dump(quant_config, f, indent=2)
+
+    # Also update config.json's quantization_config key.
+    # vLLM reads from config.json (not the separate quantization_config.json),
+    # so the substituted layer info must be there for vLLM to detect which
+    # layers are unquantized.
+    config_json_path = os.path.join(output_dir, "config.json")
+    if os.path.exists(config_json_path):
+        with open(config_json_path) as f:
+            model_config: dict[str, Any] = json.load(f)
+
+        # Merge our extra_config and dynamic entries into config.json's quantization_config
+        model_qc = model_config.get("quantization_config", {})
+        if model_qc:
+            model_ec = model_qc.get("extra_config", {})
+            if not isinstance(model_ec, dict):
+                model_ec = {}
+            # Update with our substitutions (bits=16 entries win)
+            model_ec.update(quant_config.get("extra_config", {}))
+            model_qc["extra_config"] = model_ec
+            # Set quant_method to auto_gptq (not auto-round/INC)
+            model_qc["quant_method"] = "auto_gptq"
+            # auto_gptq requires desc_act (auto-round doesn't use it)
+            if "desc_act" not in model_qc or model_qc["desc_act"] is None:
+                model_qc["desc_act"] = False
+            # Add dynamic config for MoE layer exclusions
+            model_qc["dynamic"] = quant_config.get("dynamic", {})
+            model_config["quantization_config"] = model_qc
+
+            with open(config_json_path, "w") as f:
+                json.dump(model_config, f, indent=2)
 
 
 # ---------------------------------------------------------------------------
@@ -898,5 +896,4 @@ def generate_asaq_report(
     output_path.write_text("\n".join(lines) + "\n")
 
     return output_path
-
 

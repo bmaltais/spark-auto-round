@@ -26,7 +26,7 @@ defaults:
   gpu_memory_utilization: 0.60
   max_num_batched_tokens: 32768
   max-num-seqs: 4
-  served_model_name: sar/qwen3.5-0.8b
+  served_model_name: qwen/qwen3.5-0.8b
   generation_config: '{"temperature": 0.7}'
 
 # Environment variables
