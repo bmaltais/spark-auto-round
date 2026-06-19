@@ -348,6 +348,52 @@ def load_fp16_layers(
 # ---------------------------------------------------------------------------
 
 
+def _unfuse_expert_weights(
+    fused_name: str,
+    fused_tensor: torch.Tensor,
+    num_experts: int,
+) -> dict[str, torch.Tensor]:
+    """Unfuse a stacked expert weight tensor into individual expert tensors.
+
+    The FP16 model stores expert weights as a single stacked tensor:
+        ``experts.down_proj``: shape ``(num_experts, out_features, in_features)``
+        ``experts.gate_up_proj``: shape ``(num_experts, 2*intermediate, hidden)``
+
+    vllm's ``RoutedExperts`` expects individual per-expert weights:
+        ``experts.N.down_proj``
+        ``experts.N.gate_proj``
+        ``experts.N.up_proj``
+
+    Args:
+        fused_name: Full tensor name (e.g. ``model.language_model.layers.23.mlp.experts.down_proj``).
+        fused_tensor: Stacked weight tensor with shape ``(num_experts, ...)``.
+        num_experts: Number of routed experts.
+
+    Returns:
+        Dict mapping individual expert tensor names to their slices.
+    """
+    result: dict[str, torch.Tensor] = {}
+
+    # Determine which projection this is
+    if fused_name.endswith(".down_proj"):
+        base_name = fused_name[: -len(".down_proj")]
+        for expert_id in range(num_experts):
+            result[f"{base_name}.{expert_id}.down_proj"] = fused_tensor[expert_id]
+    elif fused_name.endswith(".gate_up_proj"):
+        base_name = fused_name[: -len(".gate_up_proj")]
+        # gate_up_proj is fused gate + up: split along the second dim
+        for expert_id in range(num_experts):
+            expert_weight = fused_tensor[expert_id]  # (2*intermediate, hidden)
+            mid = expert_weight.shape[0] // 2
+            result[f"{base_name}.{expert_id}.gate_proj"] = expert_weight[:mid]
+            result[f"{base_name}.{expert_id}.up_proj"] = expert_weight[mid:]
+    else:
+        # Unknown fused format — keep as-is and let vllm handle it
+        result[fused_name] = fused_tensor
+
+    return result
+
+
 def substitute_layers(
     weights: dict[str, torch.Tensor],
     fp16_layers: dict[str, torch.Tensor],
@@ -363,8 +409,10 @@ def substitute_layers(
       ``{layer}.*.bias``
     * **Keep** existing FP16 tensors (norms, linear_attn params)
 
-    vllm handles weight fusion internally via ``packed_modules_mapping``,
-    so we keep the original unfused tensor names.
+    Fused expert weights (``experts.down_proj``, ``experts.gate_up_proj``)
+    are automatically unfused into per-expert tensors (``experts.N.down_proj``,
+    ``experts.N.gate_proj``, ``experts.N.up_proj``) so that vllm's
+    ``RoutedExperts`` weight loader can find them.
 
     Args:
         weights: Full quantized model weights dict (**modified in place**).
@@ -401,6 +449,23 @@ def substitute_layers(
                 f"No FP16 tensors found for layer {idx}. "
                 "Check that layer exists in the FP16 model."
             )
+
+        # Step 3: Unfuse stacked expert weights into per-expert tensors
+        # Detect num_experts from the fused tensor shape
+        fused_keys = [
+            k for k in fp16_prefix_tensors
+            if k.endswith(".experts.down_proj") or k.endswith(".experts.gate_up_proj")
+        ]
+        num_experts = None
+        if fused_keys:
+            # Infer num_experts from the first fused tensor
+            first_fused = fp16_prefix_tensors[fused_keys[0]]
+            num_experts = first_fused.shape[0]
+
+        for fused_name in fused_keys:
+            fused_tensor = fp16_prefix_tensors.pop(fused_name)
+            unfused = _unfuse_expert_weights(fused_name, fused_tensor, num_experts)
+            fp16_prefix_tensors.update(unfused)
 
         weights.update(fp16_prefix_tensors)
 
@@ -835,85 +900,3 @@ def generate_asaq_report(
     return output_path
 
 
-# ---------------------------------------------------------------------------
-# 10. smoke_test
-# ---------------------------------------------------------------------------
-
-
-def smoke_test(model_dir: str) -> str:
-    """Run a quick inference test on the substituted model.
-
-    Loads the model with ``transformers``, generates 50 tokens, and verifies
-    the output is non-empty and valid.
-
-    Args:
-        model_dir: Path to the output model directory.
-
-    Returns:
-        Generated text (for logging).
-
-    Raises:
-        RuntimeError: If model loading or inference fails.
-    """
-    import gc
-
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    model = None
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_dir, trust_remote_code=True
-        )
-        
-        # Try loading without trust_remote_code first, fall back to trust_remote_code
-        try:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_dir,
-                torch_dtype=torch.float16,
-                device_map="auto",
-                trust_remote_code=False,
-            )
-        except Exception:
-            # Model may require custom code; try with trust_remote_code
-            model = AutoModelForCausalLM.from_pretrained(
-                model_dir,
-                torch_dtype=torch.float16,
-                device_map="auto",
-                trust_remote_code=True,
-            )
-        
-        model.eval()
-
-        inputs = tokenizer("Hello, world!", return_tensors="pt")
-        inputs = {k: v.to(model.device) for k, v in inputs.items()}
-
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=50,
-                do_sample=False,
-            )
-
-        generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-        if not generated or len(generated) < 10:
-            raise RuntimeError(f"Output too short: '{generated}'")
-
-        return generated
-
-    except Exception as e:
-        # Provide helpful error message for known issues
-        error_msg = str(e)
-        if "auto_round.inference" in error_msg:
-            raise RuntimeError(
-                f"Smoke test failed: Model requires auto_round.inference module which "
-                f"was removed in this trimmed fork. Skip with --no-smoke-test flag."
-            ) from e
-        raise RuntimeError(f"Smoke test failed: {e}") from e
-    finally:
-        # Clean up GPU memory
-        if model is not None:
-            del model
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()

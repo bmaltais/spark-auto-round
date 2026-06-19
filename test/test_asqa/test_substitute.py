@@ -15,6 +15,7 @@ from auto_round.asqa.substitute import (
     _is_quantized_tensor,
     _layer_prefix,
     _shard_name,
+    _unfuse_expert_weights,
     compute_model_size,
     copy_config_files,
     generate_asaq_report,
@@ -86,6 +87,47 @@ class TestHelpers:
     def test_shard_name_multi(self):
         assert _shard_name(1, 5) == "model-00001-of-00005.safetensors"
         assert _shard_name(3, 5) == "model-00003-of-00005.safetensors"
+
+
+# ---------------------------------------------------------------------------
+# _unfuse_expert_weights
+# ---------------------------------------------------------------------------
+
+
+class TestUnfuseExpertWeights:
+    def test_down_proj_unfuses(self):
+        fused_name = "model.language_model.layers.0.mlp.experts.down_proj"
+        fused_tensor = torch.randn(4, 8, 16)  # 4 experts, 8 out, 16 in
+        result = _unfuse_expert_weights(fused_name, fused_tensor, num_experts=4)
+        assert len(result) == 4
+        for i in range(4):
+            key = f"model.language_model.layers.0.mlp.experts.{i}.down_proj"
+            assert key in result
+            assert result[key].shape == (8, 16)
+            assert torch.equal(result[key], fused_tensor[i])
+
+    def test_gate_up_proj_unfuses(self):
+        fused_name = "model.language_model.layers.0.mlp.experts.gate_up_proj"
+        fused_tensor = torch.randn(4, 32, 16)  # 4 experts, 16 gate + 16 up, 16 in
+        result = _unfuse_expert_weights(fused_name, fused_tensor, num_experts=4)
+        assert len(result) == 8  # 4 gate + 4 up
+        for i in range(4):
+            gate_key = f"model.language_model.layers.0.mlp.experts.{i}.gate_proj"
+            up_key = f"model.language_model.layers.0.mlp.experts.{i}.up_proj"
+            assert gate_key in result
+            assert up_key in result
+            assert result[gate_key].shape == (16, 16)
+            assert result[up_key].shape == (16, 16)
+            assert torch.equal(result[gate_key], fused_tensor[i, :16])
+            assert torch.equal(result[up_key], fused_tensor[i, 16:])
+
+    def test_unknown_format_keeps_as_is(self):
+        fused_name = "model.language_model.layers.0.mlp.experts.unknown_proj"
+        fused_tensor = torch.randn(4, 8, 16)
+        result = _unfuse_expert_weights(fused_name, fused_tensor, num_experts=4)
+        assert len(result) == 1
+        assert fused_name in result
+        assert torch.equal(result[fused_name], fused_tensor)
 
 
 # ---------------------------------------------------------------------------

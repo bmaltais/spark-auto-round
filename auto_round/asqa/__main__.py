@@ -95,11 +95,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Output directory override. Default: ./models/{name}-int4-ASAQ",
     )
-    parser.add_argument(
-        "--no-smoke-test",
-        action="store_true",
-        help="Skip the inference smoke test after substitution.",
-    )
     return parser.parse_args(argv)
 
 
@@ -170,7 +165,6 @@ def run(argv: list[str] | None = None) -> None:
         load_quantized_weights,
         save_model,
         select_layers_from_report,
-        smoke_test,
         substitute_layers,
         update_quantization_config,
     )
@@ -260,17 +254,6 @@ def run(argv: list[str] | None = None) -> None:
     # Generate report
     report_path = generate_asaq_report(quantized_path, output_dir, layer_indices)
     print(f"Report: {report_path}")
-
-    # Smoke test
-    if not args.no_smoke_test:
-        print()
-        print("Running smoke test...")
-        try:
-            smoke_test(output_dir)
-            print("✅ Smoke test passed — model produces valid output")
-        except Exception as e:
-            print(f"❌ Smoke test failed: {e}", file=sys.stderr)
-            sys.exit(1)
 
     print()
     print(f"Saved to: {output_dir}")

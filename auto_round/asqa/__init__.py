@@ -33,7 +33,6 @@ from auto_round.asqa.substitute import (
     load_quantized_weights,
     save_model,
     select_layers_from_report,
-    smoke_test,
     substitute_layers,
     update_quantization_config,
 )
@@ -57,7 +56,6 @@ __all__ = [
     "load_quantized_weights",
     "save_model",
     "select_layers_from_report",
-    "smoke_test",
     "substitute_layers",
     "update_quantization_config",
 ]
