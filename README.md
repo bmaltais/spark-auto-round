@@ -132,7 +132,7 @@ spark-auto-round <model> [options]
 | `--seqlen` | 2048 | Calibration sequence length |
 | `--batch_size` | 8 | Calibration batch size |
 | `--output_dir` | ./models | Output directory |
-| `--dataset` | github-code-clean | Calibration dataset |
+| `--dataset` | opencode-instruct | Calibration dataset |
 | `--disable_torch_compile` | (disabled) | Disable torch.compile (enabled by default) |
 
 ### Tuning Arguments
@@ -158,6 +158,23 @@ spark-auto-round <model> [options]
 | `--seed` | 42 | Random seed |
 | `--adam` | false | Use Adam optimizer |
 | `--mllm` | false | Force multimodal mode |
+
+## Datasets
+
+| Alias | Content | Notes |
+|-------|---------|-------------|
+| [opencode-instruct](https://huggingface.co/nvidia/OpenCodeInstruct) | **(default)** Code instructions + responses | Packs short sequences; best for coding models |
+| [github-code-clean](https://huggingface.co/codeparrot/github-code-clean) | Source code | Downloads random parquet shards for diversity |
+| [pile-10k](https://huggingface.co/NeelNanda/pile-10k) | English general text | Classic calibration dataset |
+| [CCI3-HQ](https://huggingface.co/BAAI/CCI3-HQ) | Chinese web text | Streaming; good for Chinese models |
+| [pile-val-backup](https://modelscope.cn/datasets/swift/pile-val-backup) | English general text | Requires `pip install modelscope` |
+| [ultrachat_200k](https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k) | Chat dialogues | Splits: `train_sft`, `test_sft` |
+| [Ultra-FineWeb](https://huggingface.co/openbmb/Ultra-FineWeb) | Web pages | Splits: `en`, `zh` |
+| [mbpp](https://huggingface.co/datasets/google-research-datasets/mbpp) | Python problems + code | Text + code concatenated |
+| [AudioCaps](https://github.com/cdjkim/audiocaps) | Sound/music captions | Good for audio-related models |
+| [new-title-chinese](https://huggingface.co/datasets/madao33/new-title-chinese) | Chinese news headlines | For Chinese NLP tasks |
+
+**Tip:** Use `opencode-instruct` for coding models and `pile-10k` or `CCI3-HQ` for general-purpose models.
 
 ## Supported Format
 

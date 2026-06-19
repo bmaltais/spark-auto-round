@@ -57,9 +57,9 @@ class BasicArgumentParser(argparse.ArgumentParser):
             "--group_size", default=128, type=int, help="Group size for weight quantization."
         )
         basic.add_argument(
-            "--dataset", default="github-code-clean", type=str,
-            help="Calibration dataset. Available: github-code-clean, pile-10k, "
-                 "pile-val-backup, CCI3-HQ, ultrachat_200k, "
+            "--dataset", default="opencode-instruct", type=str,
+            help="Calibration dataset. Available: opencode-instruct, github-code-clean, "
+                 "pile-10k, pile-val-backup, CCI3-HQ, ultrachat_200k, "
                  "openbmb/Ultra-FineWeb, new-title-chinese, mbpp, audiocaps, "
                  "local (loads from local directory)."
         )
