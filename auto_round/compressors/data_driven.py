@@ -609,6 +609,18 @@ class DataDrivenCompressor(BaseCompressor):
             if self.compress_context.is_immediate_saving:
                 self.shard_writer.write(m, is_finalize=False)
 
+            # ── Checkpoint: save quantized state BEFORE offload clears weights ──
+            # Must run before _offloader because _offload clears the block's
+            # weights to meta tensors, which would crash .cpu() in the saver.
+            if nblocks == 1:
+                self._save_checkpoint(self._checkpoint_block_idx, block_name_or_names, m)
+                self._checkpoint_block_idx += 1
+            else:
+                logger.debug(
+                    f"Skipping checkpoint for block_idx={self._checkpoint_block_idx}: "
+                    f"nblocks={nblocks} > 1 not supported for checkpointing"
+                )
+
             if self.compress_context.low_cpu_mem_usage and not self.compress_context.is_immediate_saving:
                 if nblocks == 1:
                     self._offloader(model, n, overwrite=True)
@@ -650,22 +662,14 @@ class DataDrivenCompressor(BaseCompressor):
                     self._save_sensitivity(self._checkpoint_block_idx, block_name_or_names, sens_metrics)
                     sensitivity_saved = True
 
-            # ── Checkpoint: save quantized state after each block ──────────
-            if nblocks == 1:
-                self._save_checkpoint(self._checkpoint_block_idx, block_name_or_names, m)
-                self._checkpoint_block_idx += 1
-                # ── HALT-AFTER: simulate interrupt after N-th block ────────
-                if self._halt_after == self._checkpoint_block_idx - 1:
-                    logger.warning(
-                        "HALT-AFTER: simulating interrupt after block %d",
-                        self._checkpoint_block_idx - 1,
-                    )
-                    raise KeyboardInterrupt("--halt-after block %d" % (self._checkpoint_block_idx - 1))
-            else:
-                logger.debug(
-                    f"Skipping checkpoint for block_idx={self._checkpoint_block_idx}: "
-                    f"nblocks={nblocks} > 1 not supported for checkpointing"
+            # ── HALT-AFTER: simulate interrupt after N-th block ────────
+            # Checkpoint was already saved above before the offload cleared weights.
+            if nblocks == 1 and self._halt_after == self._checkpoint_block_idx - 1:
+                logger.warning(
+                    "HALT-AFTER: simulating interrupt after block %d",
+                    self._checkpoint_block_idx - 1,
                 )
+                raise KeyboardInterrupt("--halt-after block %d" % (self._checkpoint_block_idx - 1))
 
 
         if not self.compress_context.is_immediate_saving:
@@ -832,11 +836,28 @@ class DataDrivenCompressor(BaseCompressor):
         os.makedirs(ckpt_dir, exist_ok=True)
 
         # Save block state dict (tensors on CPU)
-        state_dict = {
-            k: v.detach().cpu().contiguous() if isinstance(v, torch.Tensor) else v
-            for k, v in module.state_dict().items()
-            if isinstance(v, torch.Tensor)
-        }
+        # Defensive: skip any leftover meta tensors that survived
+        # materialization (shouldn't happen with correct ordering, but
+        # guards against future regressions).
+        state_dict = {}
+        for k, v in module.state_dict().items():
+            if not isinstance(v, torch.Tensor):
+                continue
+            if v.is_meta:
+                logger.warning(
+                    "Checkpoint: skipping meta tensor %s in %s (shape %s)",
+                    k, block_name, tuple(v.shape),
+                )
+                continue
+            state_dict[k] = v.detach().cpu().contiguous()
+        if not state_dict:
+            logger.warning(
+                "Checkpoint: empty state_dict for block %d (%s) — "
+                "all tensors were meta. Checkpoint file NOT written.",
+                block_idx, block_name,
+            )
+            return
+
         block_path = self._checkpoint_block_path(block_idx)
         torch.save(state_dict, block_path)
         logger.debug(f"Checkpoint saved: {block_path}")
