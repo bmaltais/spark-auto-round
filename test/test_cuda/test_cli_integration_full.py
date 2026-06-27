@@ -51,7 +51,7 @@ class TestCliDataFlow:
         config.num_hidden_layers = 32
         config.max_position_embeddings = 2048
 
-        adjusted, steps = auto_tune(
+        adjusted, steps, _ = auto_tune(
             user_settings=user_settings,
             model_config=config,
             budget_bytes=budget_bytes,
@@ -114,7 +114,7 @@ class TestCliDataFlow:
         # Use a tight budget to force adjustments
         # 32 GiB budget (tight for a 7B model)
         budget_bytes = 32 * 1024 ** 3
-        adjusted, steps = auto_tune(
+        adjusted, steps, _ = auto_tune(
             user_settings={"batch_size": 8, "seqlen": 2048, "nsamples": 512, "adam": True, "iters": 1000, "group_size": 128},
             model_config=config,
             budget_bytes=budget_bytes,
@@ -424,7 +424,7 @@ class TestFullFlowIntegration:
             config, {"batch_size": 1, "seqlen": 128, "adam": False}
         )
         assert peak_gb > 0, "Peak memory should be positive"
-        assert "block_weights_bf16" in breakdown
+        assert "resident_model_weights" in breakdown
 
     def test_memory_estimator_called_from_cli_context(self):
         """Verify the CLI integration calls memory estimator with correct args."""

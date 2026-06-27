@@ -40,6 +40,7 @@ def _run_tune_with_patches(capsys, extra_patches=None):
         "auto_round.__main__.auto_tune": MagicMock(return_value=(
             {"batch_size": 4, "seqlen": 1024},
             [{"setting": "batch_size", "old": 8, "new": 4, "impact": "noisier gradients"}],
+            False,
         )),
         "auto_round.utils.device.memory_estimator.estimate_peak_memory_per_block": MagicMock(
             return_value=(32.0, None)
@@ -105,6 +106,7 @@ class TestDualEmit:
             "auto_round.__main__.auto_tune": MagicMock(return_value=(
                 {"batch_size": 8, "seqlen": 2048},
                 [],
+                False,
             )),
         })
         assert "Memory OK" in captured.out

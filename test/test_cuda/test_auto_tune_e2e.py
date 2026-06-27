@@ -135,12 +135,12 @@ class TestAutoTuneResumeIntegration:
         budget_bytes = int(peak * (1024 ** 3) * 0.7)
 
         # Fresh run (no resume)
-        adjusted_fresh, steps_fresh = auto_tune(
+        adjusted_fresh, steps_fresh, _offload = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
         )
 
         # OOM resume (skip first step)
-        adjusted_resume, steps_resume = auto_tune(
+        adjusted_resume, steps_resume, _offload = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
             resume_context={"exit_reason": "oom", "oom_count": 0},
         )
@@ -149,8 +149,9 @@ class TestAutoTuneResumeIntegration:
         skipped = [s for s in steps_resume if s.get("skipped")]
         assert len(skipped) >= 1, "OOM resume should skip at least one step"
 
-        # The skipped step should be batch_size (first in ladder)
-        assert skipped[0]["setting"] == "batch_size"
+        # The skipped step should be offload (rung 0 in ladder)
+        from auto_round.compressors.auto_tune import _OFFLOAD_KEY
+        assert skipped[0]["setting"] == _OFFLOAD_KEY
 
     def test_resume_interrupt_fresh_start(self, small_model_config):
         """Interrupt resume should start fresh (no skipped steps).
@@ -164,13 +165,13 @@ class TestAutoTuneResumeIntegration:
         budget_bytes = int(peak * (1024 ** 3) * 0.7)
 
         # Interrupt resume
-        adjusted_resume, steps_resume = auto_tune(
+        adjusted_resume, steps_resume, _offload = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
             resume_context={"exit_reason": "interrupted", "oom_count": 0},
         )
 
         # Fresh run
-        adjusted_fresh, steps_fresh = auto_tune(
+        adjusted_fresh, steps_fresh, _offload = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
         )
 
@@ -191,14 +192,14 @@ class TestAutoTuneResumeIntegration:
         budget_bytes = int(peak * (1024 ** 3) * 0.5)
 
         # oom_count=0 → skip 1 step
-        _, steps_oom0 = auto_tune(
+        _, steps_oom0, _ = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
             resume_context={"exit_reason": "oom", "oom_count": 0},
         )
         skipped_oom0 = [s for s in steps_oom0 if s.get("skipped")]
 
         # oom_count=4 → skip 3 steps (1 + 4//2 = 3)
-        _, steps_oom4 = auto_tune(
+        _, steps_oom4, _ = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
             resume_context={"exit_reason": "oom", "oom_count": 4},
         )
@@ -237,7 +238,7 @@ class TestAutoTuneResumeIntegration:
         })
         budget_bytes = int(peak * (1024 ** 3) * 0.5)
 
-        adjusted, steps = auto_tune(
+        adjusted, steps, _offload = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
             resume_context=resume_context,
         )
@@ -258,12 +259,12 @@ class TestAutoTuneResumeIntegration:
         budget_bytes = int(peak * (1024 ** 3) * 0.5)
 
         # Fresh run
-        adjusted_fresh, _ = auto_tune(
+        adjusted_fresh, _, _ = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
         )
 
         # OOM resume with oom_count=4 (skip 3 steps)
-        adjusted_oom, _ = auto_tune(
+        adjusted_oom, _, _ = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
             resume_context={"exit_reason": "oom", "oom_count": 4},
         )
@@ -282,11 +283,11 @@ class TestAutoTuneResumeIntegration:
         })
         budget_bytes = int(peak * (1024 ** 3) * 0.7)
 
-        adjusted_none, steps_none = auto_tune(
+        adjusted_none, steps_none, _offload = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
             resume_context=None,
         )
-        adjusted_fresh, steps_fresh = auto_tune(
+        adjusted_fresh, steps_fresh, _offload = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
         )
 
@@ -300,11 +301,11 @@ class TestAutoTuneResumeIntegration:
         })
         budget_bytes = int(peak * (1024 ** 3) * 0.7)
 
-        adjusted_empty, steps_empty = auto_tune(
+        adjusted_empty, steps_empty, _offload = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
             resume_context={},
         )
-        adjusted_fresh, steps_fresh = auto_tune(
+        adjusted_fresh, steps_fresh, _offload = auto_tune(
             DEFAULT_SETTINGS, small_model_config, budget_bytes,
         )
 
@@ -599,7 +600,7 @@ class TestAutoTuneE2E:
 
         # Qwen3-0.6B is tiny, should be well under 5 GiB
         assert 0 < peak_gb < 5.0, f"Peak memory should be reasonable, got {peak_gb} GB"
-        assert "block_weights_bf16" in breakdown
+        assert "resident_model_weights" in breakdown
         assert "activation_forward" in breakdown
         assert "total_estimated" in breakdown
 
@@ -623,7 +624,7 @@ class TestAutoTuneE2E:
         budget_bytes = 96 * (1024 ** 3)
 
         # Run auto-tuner
-        adjusted_settings, tune_steps = auto_tune(
+        adjusted_settings, tune_steps, _offload = auto_tune(
             user_settings=user_settings,
             model_config=config,
             budget_bytes=budget_bytes,
@@ -663,7 +664,7 @@ class TestAutoTuneE2E:
 
         budget_bytes = 96 * (1024 ** 3)
 
-        adjusted, steps = auto_tune(
+        adjusted, steps, _offload = auto_tune(
             user_settings=user_settings,
             model_config=config,
             budget_bytes=budget_bytes,

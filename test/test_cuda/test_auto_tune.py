@@ -26,6 +26,7 @@ from auto_round.compressors.auto_tune import (
     format_resume_message,
     _resolve_resume_offset,
     _RELAXATION_LADDER,
+    _OFFLOAD_KEY,
 )
 
 
@@ -110,58 +111,62 @@ DEFAULT_BUDGET = 96 * 1024 ** 3  # 96 GiB default budget
 class TestAutoTuneFresh:
     def test_no_adjustment_needed(self, small_config):
         """Small model with generous budget — no settings changed."""
-        adjusted, steps = auto_tune(
+        adjusted, steps, _offload = auto_tune(
             DEFAULT_SETTINGS, small_config, DEFAULT_BUDGET,
         )
         assert len(steps) == 0
         assert adjusted == DEFAULT_SETTINGS
 
     def test_batch_size_relaxed_once(self, medium_config):
-        """Moderate pressure — batch_size reduces one step (8→4)."""
+        """Moderate pressure (offload already active) — batch_size reduces one step (8→4)."""
         from auto_round.utils.device.memory_estimator import (
             estimate_peak_memory_per_block,
         )
+        # Use offload=True since we're testing quality degradation specifically
         peak_bs8, _ = estimate_peak_memory_per_block(medium_config, {
             "batch_size": 8, "seqlen": 2048,
             "group_size": DEFAULT_SETTINGS["group_size"],
-        })
+        }, offload=True)
         peak_bs4, _ = estimate_peak_memory_per_block(medium_config, {
             "batch_size": 4, "seqlen": 2048,
             "group_size": DEFAULT_SETTINGS["group_size"],
-        })
+        }, offload=True)
 
         # Budget must be between peak(bs=8) and peak(bs=4) so exactly one step
         assert peak_bs8 > peak_bs4, "expected bs=8 to use more memory than bs=4"
         midpoint_gb = (peak_bs8 + peak_bs4) / 2
         budget_bytes = int(midpoint_gb * (1024 ** 3))
 
-        adjusted, steps = auto_tune(
+        adjusted, steps, offload = auto_tune(
             DEFAULT_SETTINGS, medium_config, budget_bytes,
+            offload=True,
         )
         assert len(steps) >= 1
         assert steps[0]["setting"] == "batch_size"
         assert steps[0]["old"] == 8
         assert steps[0]["new"] == 4
         assert adjusted["batch_size"] == 4
+        assert offload is True
 
     def test_multiple_relaxations(self, medium_config):
-        """Sequential relaxations across different settings."""
+        """Sequential relaxations across different settings (offload already active)."""
         from auto_round.utils.device.memory_estimator import (
             estimate_peak_memory_per_block,
         )
 
-        # Find a budget that forces at least 2 steps
-        # Start with bs=1 (minimum), check peak
+        # Find a budget that forces at least 2 quality steps (offload already on)
+        # Start with bs=1 (minimum), check peak with offload=True
         peak_min_bs, _ = estimate_peak_memory_per_block(medium_config, {
             "batch_size": 1, "seqlen": 2048,
             "group_size": DEFAULT_SETTINGS["group_size"],
-        })
+        }, offload=True)
 
         # Budget just below bs=1 peak — forces at least 2 relaxations
         budget_bytes = int(peak_min_bs * (1024 ** 3))
 
-        adjusted, steps = auto_tune(
+        adjusted, steps, offload = auto_tune(
             DEFAULT_SETTINGS, medium_config, budget_bytes,
+            offload=True,
         )
         # Should have at least 2 steps and batch_size should be ≤ 1
         assert len(steps) >= 2
@@ -169,18 +174,21 @@ class TestAutoTuneFresh:
         # batch_size should appear in the steps
         batch_steps = [s for s in steps if s["setting"] == "batch_size"]
         assert len(batch_steps) >= 1
+        assert offload is True
 
     def test_max_relaxations(self, large_moe_config):
         """MoE model with 128 GB budget — all settings should hit minimums."""
-        adjusted, steps = auto_tune(
+        adjusted, steps, offload = auto_tune(
             DEFAULT_SETTINGS, large_moe_config, DEFAULT_BUDGET,
         )
         # All relaxations should be applied
         assert adjusted["batch_size"] == 1
         assert adjusted["seqlen"] == 256
         assert adjusted["nsamples"] == 128
-        # Should have 3+ steps (one per ladder entry minimum)
-        assert len(steps) >= 3
+        # Should have 4+ steps (offload + one per quality ladder entry)
+        assert len(steps) >= 4
+        # Offload should be recommended for this huge model
+        assert offload is True
         # Verify iters and group_size untouched
         assert adjusted["iters"] == 1000
         assert adjusted["group_size"] == 128
@@ -194,12 +202,13 @@ class TestAutoTuneFresh:
         peak_default, _ = estimate_peak_memory_per_block(medium_config, {
             "batch_size": 8, "seqlen": 2048,
             "group_size": DEFAULT_SETTINGS["group_size"],
-        })
+        }, offload=True)
         # Tight budget forces relaxations
         budget_bytes = int(peak_default * (1024 ** 3) * 0.8)
 
-        adjusted, steps = auto_tune(
+        adjusted, steps, offload = auto_tune(
             DEFAULT_SETTINGS, medium_config, budget_bytes,
+            offload=True,
         )
         assert adjusted["iters"] == 1000
         assert adjusted["group_size"] == 128
@@ -209,7 +218,7 @@ class TestAutoTuneFresh:
         assert "group_size" not in setting_names
 
     def test_nonstandard_initial_values(self, medium_config):
-        """User starts with batch_size=2 — tuner starts from that level."""
+        """User starts with batch_size=2 — tuner starts from that level (offload active)."""
         from auto_round.utils.device.memory_estimator import (
             estimate_peak_memory_per_block,
         )
@@ -220,11 +229,12 @@ class TestAutoTuneFresh:
         peak_bs2, _ = estimate_peak_memory_per_block(medium_config, {
             "batch_size": 2, "seqlen": 2048,
             "group_size": settings["group_size"],
-        })
+        }, offload=True)
         budget_bytes = int(peak_bs2 * (1024 ** 3) * 0.98)
 
-        adjusted, steps = auto_tune(
+        adjusted, steps, offload = auto_tune(
             settings, medium_config, budget_bytes,
+            offload=True,
         )
         # batch_size should go 2→1
         batch_steps = [s for s in steps if s["setting"] == "batch_size"]
@@ -232,6 +242,7 @@ class TestAutoTuneFresh:
             assert batch_steps[0]["old"] == 2
             assert batch_steps[0]["new"] == 1
         assert adjusted["batch_size"] <= 1
+        assert offload is True
 
     def test_different_budget_levels(self, medium_config):
         """Lower budget should trigger stricter relaxations."""
@@ -249,10 +260,10 @@ class TestAutoTuneFresh:
         # Tight budget (forces relaxation)
         tight_budget = int(peak_default * (1024 ** 3) * 0.8)
 
-        adjusted_generous, steps_generous = auto_tune(
+        adjusted_generous, steps_generous, _ = auto_tune(
             DEFAULT_SETTINGS, medium_config, generous_budget,
         )
-        adjusted_tight, steps_tight = auto_tune(
+        adjusted_tight, steps_tight, _ = auto_tune(
             DEFAULT_SETTINGS, medium_config, tight_budget,
         )
         # Tighter budget = more relaxation steps
@@ -260,7 +271,7 @@ class TestAutoTuneFresh:
 
     def test_budget_exceeded_at_max_relaxations(self, large_moe_config):
         """Even at max relaxations the MoE model exceeds budget — best-effort."""
-        adjusted, steps = auto_tune(
+        adjusted, steps, _offload = auto_tune(
             DEFAULT_SETTINGS, large_moe_config, DEFAULT_BUDGET,
         )
         # Even with everything at minimum, MoE still likely exceeds 96 GB
@@ -296,12 +307,12 @@ class TestAutoTuneResume:
         midpoint_gb = (peak_bs8 + peak_bs4) / 2
         budget_bytes = int(midpoint_gb * (1024 ** 3))
 
-        adjusted, steps = auto_tune(
+        adjusted, steps, _offload = auto_tune(
             DEFAULT_SETTINGS, medium_config, budget_bytes,
             resume_context={"exit_reason": "interrupted", "oom_count": 0},
         )
         # Should be identical to fresh run with same budget
-        adjusted_fresh, steps_fresh = auto_tune(
+        adjusted_fresh, steps_fresh, _ = auto_tune(
             DEFAULT_SETTINGS, medium_config, budget_bytes,
         )
         assert adjusted == adjusted_fresh
@@ -320,7 +331,7 @@ class TestAutoTuneResume:
         # Tighter budget
         budget_bytes = int(peak_bs8 * (1024 ** 3) * 0.7)
 
-        adjusted_resume, steps_resume = auto_tune(
+        adjusted_resume, steps_resume, _ = auto_tune(
             DEFAULT_SETTINGS, medium_config, budget_bytes,
             resume_context={"exit_reason": "oom", "oom_count": 0},
         )
@@ -329,7 +340,7 @@ class TestAutoTuneResume:
         assert len(skipped) >= 1
 
         # Without OOM context, fewer steps (no skip)
-        adjusted_fresh, steps_fresh = auto_tune(
+        adjusted_fresh, steps_fresh, _ = auto_tune(
             DEFAULT_SETTINGS, medium_config, budget_bytes,
         )
         # OOM version should have same or more total steps but with skip markers
@@ -348,13 +359,15 @@ class TestAutoTuneResume:
         })
         budget_bytes = int(peak_default * (1024 ** 3) * 0.6)
 
-        adjusted, steps = auto_tune(
+        adjusted, steps, offload = auto_tune(
             DEFAULT_SETTINGS, medium_config, budget_bytes,
             resume_context={"exit_reason": "oom", "oom_count": 3},
         )
         # oom_count=3 → skip = 1 + (3//2) = 2
         skipped = [s for s in steps if s.get("skipped")]
         assert len(skipped) >= 2
+        # With offload as rung 0, skipped steps should include offload
+        assert any(s["setting"] == _OFFLOAD_KEY for s in skipped)
 
     def test_resume_no_context(self, medium_config):
         """No resume context — fresh start (same as auto_tune without ctx)."""
@@ -368,11 +381,11 @@ class TestAutoTuneResume:
         })
         budget_bytes = int(peak_default * (1024 ** 3) * 0.7)
 
-        adjusted, steps = auto_tune(
+        adjusted, steps, _offload = auto_tune(
             DEFAULT_SETTINGS, medium_config, budget_bytes,
             resume_context=None,
         )
-        adjusted_fresh, _ = auto_tune(
+        adjusted_fresh, _, _ = auto_tune(
             DEFAULT_SETTINGS, medium_config, budget_bytes,
         )
         assert adjusted == adjusted_fresh
@@ -619,12 +632,14 @@ class TestResolveResumeOffset:
 
 class TestRelaxationLadder:
     def test_ladder_has_required_entries(self):
-        """Ladder must have batch_size, seqlen, nsamples entries."""
+        """Ladder must have offload, batch_size, seqlen, nsamples entries."""
         keys = [e["key"] for e in _RELAXATION_LADDER]
+        assert _OFFLOAD_KEY in keys
         assert "batch_size" in keys
         assert "seqlen" in keys
         assert "nsamples" in keys
-        # Must be in this order
+        # Must be in this order: offload first, then quality degradations
+        assert keys.index(_OFFLOAD_KEY) < keys.index("batch_size")
         assert keys.index("batch_size") < keys.index("seqlen")
         assert keys.index("seqlen") < keys.index("nsamples")
 
@@ -666,7 +681,7 @@ class TestMemoryBudget:
             "group_size": settings["group_size"],
         })
         budget_bytes = int(peak * (1024 ** 3))
-        adjusted, steps = auto_tune(
+        adjusted, steps, _offload = auto_tune(
             settings, small_config, budget_bytes,
         )
         # Should fit with no relaxation
@@ -674,10 +689,177 @@ class TestMemoryBudget:
 
     def test_budget_below_minimum_triggers_all_relaxations(self, large_moe_config):
         """Very small budget forces all settings to minimums."""
-        adjusted, steps = auto_tune(
+        adjusted, steps, offload = auto_tune(
             DEFAULT_SETTINGS, large_moe_config, 1 * (1024 ** 3),  # 1 GiB
         )
         assert adjusted["batch_size"] == 1
         assert adjusted["seqlen"] == 256
         assert adjusted["nsamples"] == 128
-        assert len(steps) >= 3
+        # offload + 3 quality rungs = 4 steps minimum
+        assert len(steps) >= 4
+        assert offload is True
+
+
+# ---------------------------------------------------------------------------
+# Offload rung (rung 0) tests
+# ---------------------------------------------------------------------------
+
+
+class TestOffloadRung:
+    """Tests for the offload rung (rung 0) in the relaxation ladder."""
+
+    def test_offload_preferred_over_quality_degradation(self, medium_config):
+        """When whole-model exceeds budget, offload is tried before quality degradation."""
+        from auto_round.utils.device.memory_estimator import (
+            estimate_peak_memory_per_block,
+        )
+
+        # Compute peak in whole-model mode (offload=False)
+        peak_whole, _ = estimate_peak_memory_per_block(
+            medium_config,
+            {"batch_size": 8, "seqlen": 2048, "group_size": 128},
+            offload=False,
+        )
+        # Compute peak in offload mode (offload=True)
+        peak_offload, _ = estimate_peak_memory_per_block(
+            medium_config,
+            {"batch_size": 8, "seqlen": 2048, "group_size": 128},
+            offload=True,
+        )
+
+        # offload should use much less memory (no resident weights from other blocks)
+        assert peak_offload < peak_whole
+
+        # Budget between the two — should trigger offload but NOT quality degradation
+        midpoint_gb = (peak_offload + peak_whole) / 2
+        # Make sure midpoint is above offload but below whole-model
+        if midpoint_gb > peak_offload and midpoint_gb < peak_whole:
+            budget_bytes = int(midpoint_gb * (1024 ** 3))
+            adjusted, steps, offload = auto_tune(
+                DEFAULT_SETTINGS, medium_config, budget_bytes,
+            )
+            # Should recommend offload
+            assert offload is True
+            # Should NOT degrade any quality settings
+            assert adjusted["batch_size"] == 8
+            assert adjusted["seqlen"] == 2048
+            assert adjusted["nsamples"] == 512
+            # Should have exactly one step: the offload rung
+            assert len(steps) == 1
+            assert steps[0]["setting"] == _OFFLOAD_KEY
+            assert steps[0]["old"] is False
+            assert steps[0]["new"] is True
+
+    def test_offload_plus_quality_degradation(self, medium_config):
+        """When offload alone isn't enough, quality degradation follows."""
+        from auto_round.utils.device.memory_estimator import (
+            estimate_peak_memory_per_block,
+        )
+
+        # Find peak with offload=True and bs=8
+        peak_offload_bs8, _ = estimate_peak_memory_per_block(
+            medium_config,
+            {"batch_size": 8, "seqlen": 2048, "group_size": 128},
+            offload=True,
+        )
+        # Find peak with offload=True and bs=4
+        peak_offload_bs4, _ = estimate_peak_memory_per_block(
+            medium_config,
+            {"batch_size": 4, "seqlen": 2048, "group_size": 128},
+            offload=True,
+        )
+
+        # Budget between offload+bs8 and offload+bs4
+        if peak_offload_bs8 > peak_offload_bs4:
+            midpoint_gb = (peak_offload_bs8 + peak_offload_bs4) / 2
+            if midpoint_gb > peak_offload_bs4:
+                budget_bytes = int(midpoint_gb * (1024 ** 3))
+                adjusted, steps, offload = auto_tune(
+                    DEFAULT_SETTINGS, medium_config, budget_bytes,
+                )
+                # Should enable offload AND degrade batch_size
+                assert offload is True
+                assert adjusted["batch_size"] == 4
+                # Steps should include offload rung + batch_size rung
+                setting_names = [s["setting"] for s in steps]
+                assert _OFFLOAD_KEY in setting_names
+                assert "batch_size" in setting_names
+                # Offload should come before batch_size
+                assert setting_names.index(_OFFLOAD_KEY) < setting_names.index("batch_size")
+
+    def test_no_offload_when_fits_in_memory(self, small_config):
+        """Small model that fits in memory — offload not needed."""
+        adjusted, steps, offload = auto_tune(
+            DEFAULT_SETTINGS, small_config, DEFAULT_BUDGET,
+        )
+        # No steps needed, offload should remain False
+        assert len(steps) == 0
+        assert offload is False
+
+    def test_offload_already_active_no_change(self, medium_config):
+        """When offload is already True, the offload rung is already at max."""
+        from auto_round.utils.device.memory_estimator import (
+            estimate_peak_memory_per_block,
+        )
+
+        # Find a budget that requires quality degradation even with offload
+        peak_offload_bs8, _ = estimate_peak_memory_per_block(
+            medium_config,
+            {"batch_size": 8, "seqlen": 2048, "group_size": 128},
+            offload=True,
+        )
+        peak_offload_bs4, _ = estimate_peak_memory_per_block(
+            medium_config,
+            {"batch_size": 4, "seqlen": 2048, "group_size": 128},
+            offload=True,
+        )
+
+        if peak_offload_bs8 > peak_offload_bs4:
+            midpoint_gb = (peak_offload_bs8 + peak_offload_bs4) / 2
+            if midpoint_gb > peak_offload_bs4:
+                budget_bytes = int(midpoint_gb * (1024 ** 3))
+                # Start with offload=True
+                adjusted, steps, offload = auto_tune(
+                    DEFAULT_SETTINGS, medium_config, budget_bytes,
+                    offload=True,
+                )
+                # Offload stays True
+                assert offload is True
+                # No offload step in the ladder (already active)
+                offload_steps = [s for s in steps if s["setting"] == _OFFLOAD_KEY]
+                assert len(offload_steps) == 0
+                # batch_size should be degraded
+                assert adjusted["batch_size"] == 4
+
+    def test_offload_with_resume_oom(self, medium_config):
+        """OOM resume with offload skips the offload rung first."""
+        from auto_round.utils.device.memory_estimator import (
+            estimate_peak_memory_per_block,
+        )
+
+        peak_whole, _ = estimate_peak_memory_per_block(
+            medium_config,
+            {"batch_size": 8, "seqlen": 2048, "group_size": 128},
+            offload=False,
+        )
+        # Budget that would normally trigger offload
+        peak_offload, _ = estimate_peak_memory_per_block(
+            medium_config,
+            {"batch_size": 8, "seqlen": 2048, "group_size": 128},
+            offload=True,
+        )
+
+        if peak_whole > peak_offload:
+            midpoint_gb = (peak_offload + peak_whole) / 2
+            if midpoint_gb > peak_offload:
+                budget_bytes = int(midpoint_gb * (1024 ** 3))
+                # OOM resume with oom_count=0 → skip 1 step
+                adjusted, steps, offload = auto_tune(
+                    DEFAULT_SETTINGS, medium_config, budget_bytes,
+                    resume_context={"exit_reason": "oom", "oom_count": 0},
+                )
+                # Should have a skipped offload step
+                skipped = [s for s in steps if s.get("skipped")]
+                assert len(skipped) >= 1
+                # The first skipped step should be the offload rung
+                assert skipped[0]["setting"] == _OFFLOAD_KEY

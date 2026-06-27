@@ -20,7 +20,7 @@ and on resume (with OOM awareness).
 Usage:
     from auto_round.compressors.auto_tune import auto_tune
 
-    adjusted, steps = auto_tune(
+    adjusted, steps, offload = auto_tune(
         user_settings={"batch_size": 8, "seqlen": 2048, "nsamples": 512},
         model_config=config,
         budget_bytes=96 * 1024**3,  # 96 GiB ceiling
@@ -42,10 +42,19 @@ from auto_round.utils.device.memory_estimator import (
 # Relaxation priority ladder
 # ---------------------------------------------------------------------------
 
-# Each entry: (setting_key, step_values, impact_description)
+# Rung 0 is special: enable block-offload before degrading any quality
+# settings.  It is represented as a dict with "key" = "__offload__" so the
+# main loop can distinguish it from ordinary quality relaxations.
+#
+# Subsequent rungs degrade quality in priority order.
 # Values are listed from most aggressive (best quality) → most conservative.
 # The tuner walks this list in order, advancing to the next level per iteration.
 _RELAXATION_LADDER: List[Dict[str, Any]] = [
+    {
+        "key": "__offload__",
+        "levels": [False, True],
+        "impact": "block-offload (loads one block at a time from CPU/meta)",
+    },
     {
         "key": "batch_size",
         "levels": [8, 4, 2, 1],
@@ -66,6 +75,9 @@ _RELAXATION_LADDER: List[Dict[str, Any]] = [
 # Settings that the auto-tuner must never touch
 _NEVER_AUTO_TUNE = {"iters", "group_size"}
 
+# Sentinel key for the offload rung (not a real user setting)
+_OFFLOAD_KEY = "__offload__"
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -77,7 +89,8 @@ def auto_tune(
     model_config: "AutoConfig",  # noqa: F821
     budget_bytes: int,
     resume_context: Optional[Dict[str, Any]] = None,
-) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    offload: bool = False,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], bool]:
     """Adjust user settings to fit within available memory budget.
 
     Parameters
@@ -94,6 +107,9 @@ def auto_tune(
         From checkpoint progress.json, if resuming:
             exit_reason : str | None     ("oom", "interrupted", None)
             oom_count : int              (number of prior OOMs, default 0)
+    offload : bool
+        Initial offload state.  If False (whole-model mode) the tuner will
+        consider enabling block-offload as rung 0 before degrading quality.
 
     Returns
     -------
@@ -102,6 +118,9 @@ def auto_tune(
     steps : list[dict]
         Each dict: {"setting": str, "old": val, "new": val, "impact": str}.
         Empty if no changes were needed.
+    offload : bool
+        Recommended offload state.  Caller should use this to set
+        ``use_meta_device`` for the quantization run.
     """
     # -- Deep copy so we don't mutate caller's dict -------------------------
     adjusted = copy.deepcopy(user_settings)
@@ -125,7 +144,28 @@ def auto_tune(
         key = entry["key"]
         levels = entry["levels"]
 
-        # Record the skip
+        if key == _OFFLOAD_KEY:
+            # Offload is tracked separately, not in adjusted dict
+            old_val = offload
+            if len(levels) > 1:
+                new_val = levels[1]
+                levels.pop(0)  # discard the failed level
+                offload = new_val
+                steps.append({
+                    "setting": key,
+                    "old": old_val,
+                    "new": new_val,
+                    "impact": entry["impact"],
+                    "skipped": True,
+                })
+                ladder_idx += 1
+                setting_idx = 0
+            else:
+                # Offload rung exhausted; move to next
+                ladder_idx += 1
+                setting_idx = 0
+            continue
+
         old_val = adjusted.get(key)
         # Advance: the first level is the one that OOM'd; skip it
         if len(levels) > 1:
@@ -133,19 +173,19 @@ def auto_tune(
             levels.pop(0)  # discard the failed level
             # Update adjusted setting to the next level
             adjusted[key] = new_val
+            steps.append({
+                "setting": key,
+                "old": old_val,
+                "new": new_val,
+                "impact": entry["impact"],
+                "skipped": True,  # marker for display
+            })
+            ladder_idx += 1
+            setting_idx = 0
         else:
             # This ladder entry is exhausted; move to next
             ladder_idx += 1
             setting_idx = 0
-            continue
-
-        steps.append({
-            "setting": key,
-            "old": old_val,
-            "new": new_val,
-            "impact": entry["impact"],
-            "skipped": True,  # marker for display
-        })
 
     # Pre-compute hidden dimensions and per-block param count (pure functions
     # of model_config — same for every iteration of the relaxation loop).
@@ -157,6 +197,7 @@ def auto_tune(
         peak_gb, _ = estimate_peak_memory_per_block(
             model_config, adjusted,
             hidden_dims=dims, block_params=per_block_params,
+            offload=offload,
         )
         peak_bytes = int(peak_gb * (1024 ** 3))
 
@@ -168,6 +209,41 @@ def auto_tune(
             entry = ladder[ladder_idx]
             key = entry["key"]
             levels = entry["levels"]
+
+            # -- Offload rung (tracked separately) -----------------------
+            if key == _OFFLOAD_KEY:
+                current_val = offload
+                if current_val in levels:
+                    idx = levels.index(current_val)
+                    if idx < len(levels) - 1:
+                        new_val = levels[idx + 1]
+                        offload = new_val
+                        steps.append({
+                            "setting": key,
+                            "old": current_val,
+                            "new": new_val,
+                            "impact": entry["impact"],
+                            "skipped": False,
+                        })
+                        setting_idx = idx + 1
+                        break  # re-check peak with new setting
+                    else:
+                        # Offload already at max — move to next ladder entry
+                        ladder_idx += 1
+                        setting_idx = 0
+                        continue
+                else:
+                    offload = levels[-1]
+                    steps.append({
+                        "setting": key,
+                        "old": current_val,
+                        "new": levels[-1],
+                        "impact": entry["impact"],
+                        "skipped": False,
+                    })
+                    break
+
+            # -- Standard quality rung ------------------------------------
             current_val = adjusted.get(key)
 
             # Find current value in levels list
@@ -207,7 +283,7 @@ def auto_tune(
             # All settings at minimum — can't relax further
             break
 
-    return adjusted, steps
+    return adjusted, steps, offload
 
 
 def format_preflight_message(
@@ -237,8 +313,14 @@ def format_preflight_message(
     skipped_steps = [s for s in steps if s.get("skipped")]
     active_steps = [s for s in steps if not s.get("skipped")]
 
+    # Separate offload step from quality steps for display
+    offload_steps = [s for s in active_steps if s["setting"] == _OFFLOAD_KEY]
+    quality_steps = [s for s in active_steps if s["setting"] != _OFFLOAD_KEY]
+
     lines = ["Memory budget exceeded. Adjusting settings:"]
-    for s in active_steps:
+    for s in offload_steps:
+        lines.append(f"  offload      {s['old']} → {s['new']:<8} ({s['impact']})")
+    for s in quality_steps:
         lines.append(f"  {s['setting']:<12} {s['old']} → {s['new']:<8} ({s['impact']})")
     if skipped_steps:
         lines.append(
@@ -276,8 +358,15 @@ def format_resume_message(
 
     active_steps = [s for s in steps if not s.get("skipped")]
     if active_steps:
+        # Separate offload step from quality steps for display
+        offload_steps = [s for s in active_steps if s["setting"] == _OFFLOAD_KEY]
+        quality_steps = [s for s in active_steps if s["setting"] != _OFFLOAD_KEY]
         lines.append("Adjusting settings:")
-        for s in active_steps:
+        for s in offload_steps:
+            lines.append(
+                f"  offload      {s['old']} → {s['new']:<8} ({s['impact']})"
+            )
+        for s in quality_steps:
             lines.append(
                 f"  {s['setting']:<12} {s['old']} → {s['new']:<8} ({s['impact']})"
             )

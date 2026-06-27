@@ -89,6 +89,17 @@ class BasicArgumentParser(argparse.ArgumentParser):
                  "auto-tune relaxation. Default: 96 (75%% of 128 GiB). Max: 120.",
         )
         basic.add_argument(
+            "--offload",
+            action="store_true",
+            default=False,
+            help="Force block-offload mode (load one transformer block at a time "
+                 "from CPU/meta device). Reduces peak GPU memory at the cost of "
+                 "slower quantization. Useful for large models or tight memory "
+                 "budgets. Without this flag, offload is only enabled when the "
+                 "model-at-rest exceeds --max_model_mem or the auto-tuner "
+                 "recommends it to avoid quality degradation.",
+        )
+        basic.add_argument(
             "--trust-remote-code",
             action="store_true",
             default=True,
@@ -230,6 +241,11 @@ def tune(args):
     # and load blocks on demand during quantization.
     use_meta_device = use_offload
 
+    # --offload flag forces block-offload regardless of model size
+    if args.offload:
+        use_meta_device = True
+        logger.info("--offload flag set: forcing block-offload mode.")
+
     # -------------------------------------------------------------------
     # Auto-tune: adjust per-block settings if peak memory exceeds budget
     # -------------------------------------------------------------------
@@ -283,14 +299,17 @@ def tune(args):
                 pass
 
         # Run auto-tuner with budget_bytes
-        adjusted_settings, tune_steps = auto_tune(
+        # offload starts at False (whole-model); the tuner may recommend
+        # enabling block-offload as rung 0 before degrading quality.
+        adjusted_settings, tune_steps, offload_recommended = auto_tune(
             user_settings=user_settings,
             model_config=model_config,
             budget_bytes=budget_bytes,
             resume_context=resume_context,
+            offload=use_meta_device,
         )
 
-        # Compute peak for display
+        # Compute peak for display (use recommended offload state)
         from auto_round.utils.device.memory_estimator import (
             _get_block_params,
             _get_hidden_dimensions,
@@ -301,6 +320,7 @@ def tune(args):
         peak_gb, _ = estimate_peak_memory_per_block(
             model_config, adjusted_settings,
             hidden_dims=_cached_dims, block_params=_cached_params,
+            offload=offload_recommended,
         )
 
         # Display message
@@ -350,6 +370,19 @@ def tune(args):
         tune_steps = []
         peak_gb = 0.0
         tuning_profile = None
+        offload_recommended = use_meta_device
+
+    # Apply offload recommendation from auto-tuner
+    # Only override in one direction: the tuner can recommend enabling
+    # offload to avoid quality degradation, but it never disables offload
+    # that was already mandated by estimate_memory_strategy (model-at-rest
+    # exceeds threshold).
+    if offload_recommended and not use_meta_device:
+        logger.info(
+            "Auto-tuner recommends block-offload mode to avoid quality degradation. "
+            "Switching from whole-model to block-offload."
+        )
+        use_meta_device = True
 
     # ── Shakedown mode overrides ──────────────────────────────────────────
     if args.shakedown:
@@ -368,16 +401,6 @@ def tune(args):
                 "nsamples": 1,
             },
         }
-        # Print prominent banner
-        import textwrap
-        banner = textwrap.dedent("""\
-        \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
-        \u2551  SHAKEDOWN MODE \u2014 fastest/lowest quality settings    \u2551
-        \u2551  iters=1  nsamples=1  seqlen=2  batch_size=1         \u2551
-        \u2551  NOT suitable for production quantization             \u2551
-        \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
-        """)
-        print(banner)
         logger.warning(
             "SHAKEDOWN MODE: iters=1 nsamples=1 seqlen=2 batch_size=1 "
             " \u2014 NOT suitable for production quantization"
@@ -463,7 +486,14 @@ def tune(args):
         autoround._exit_reason = None
 
     # Quantize and save
-    model, folders = autoround.quantize_and_save(args.output_dir, format=format)
+    try:
+        model, folders = autoround.quantize_and_save(args.output_dir, format=format)
+    except KeyboardInterrupt:
+        if args.halt_after >= 0:
+            # --halt-after simulates Ctrl+C; exit cleanly
+            logger.info("--halt-after: exiting cleanly. Resume by re-running without --halt-after.")
+            return
+        raise
     tokenizer = autoround.tokenizer
     clear_memory()
 

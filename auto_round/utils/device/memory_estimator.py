@@ -40,6 +40,7 @@ def estimate_peak_memory_per_block(
     user_settings: Dict[str, Any],
     hidden_dims: Dict[str, Any] | None = None,
     block_params: int | None = None,
+    offload: bool = False,
 ) -> Tuple[float, Dict[str, float]]:
     """Compute peak GPU memory (GB) for a single quantization block.
 
@@ -60,6 +61,10 @@ def estimate_peak_memory_per_block(
     block_params : int or None
         Pre-computed per-block parameter count (from _get_block_params).
         If None, computed from config.
+    offload : bool
+        If True, only one block's weights are resident on GPU at a time
+        (block-offload mode).  The weights of all other blocks are on
+        CPU/meta and do not count toward per-block peak.
 
     Returns
     -------
@@ -92,8 +97,18 @@ def estimate_peak_memory_per_block(
         per_block_params = _get_block_params(config, dims)
 
     # -- Component sizes in bytes -------------------------------------------
+    num_layers = dims["num_layers"]
+
     # Each weight is stored as bf16 (2 bytes)
     block_weight_bytes = per_block_params * 2
+
+    # Resident model weights: in whole-model mode all blocks are on GPU
+    # simultaneously.  In block-offload mode only the current block's weights
+    # reside on GPU; the rest are on CPU/meta.
+    if offload:
+        resident_model_bytes = block_weight_bytes
+    else:
+        resident_model_bytes = block_weight_bytes * num_layers
 
     # Wrapper duplicates params as fp32 (4 bytes) — value + min_scale + max_scale
     # value (round) has same element count as weights
@@ -137,7 +152,7 @@ def estimate_peak_memory_per_block(
 
     # -- Total --------------------------------------------------------------
     components = {
-        "block_weights_bf16": block_weight_bytes,
+        "resident_model_weights": resident_model_bytes,
         "wrapper_value_fp32": wrapper_value_bytes,
         "wrapper_scales_fp32": wrapper_scale_bytes,
         "activation_forward": activation_bytes,
@@ -149,13 +164,12 @@ def estimate_peak_memory_per_block(
     }
 
     total_bytes = sum(components.values())
-    # 1.50× safety factor accounts for:
-    # - PyTorch CUDA allocator fragmentation overhead (~5-10%)
-    # - Autograd computation graph metadata (~15-20%)
-    # - Additional intermediate tensors not explicitly modeled
-    # - torch.compile kernel fusion effects
-    # - System-level memory overhead
-    safety_factor = 1.50
+    # Minimal 1.10× safety factor accounts only for allocator rounding.
+    # We deliberately do NOT try to model fragmentation, autograd metadata,
+    # or torch.compile effects — those are workload-dependent and guessing
+    # leads to false positives (unnecessary quality degradation).
+    # If the estimate is wrong and we OOM, the resume mechanism handles it.
+    safety_factor = 1.10
     peak_gb = (total_bytes * safety_factor) / (1024 ** 3)
 
     # Return breakdown in GiB for readability

@@ -98,6 +98,7 @@ class DataDrivenCompressor(BaseCompressor):
         self.iters = iters
         self.clear_cache = kwargs.pop("clear_cache", False)
         self._halt_after = kwargs.pop("halt_after", -1)
+        self._halt_after_fired = False
         self._shakedown = kwargs.pop("shakedown", False)
         self._checkpoint_block_idx = 0
         self._exit_reason: Optional[str] = None
@@ -664,11 +665,15 @@ class DataDrivenCompressor(BaseCompressor):
 
             # ── HALT-AFTER: simulate interrupt after N-th block ────────
             # Checkpoint was already saved above before the offload cleared weights.
+            # We set _halt_after_fired so the except KeyboardInterrupt handler
+            # below can distinguish this from a real user Ctrl+C and exit cleanly
+            # instead of re-raising.
             if nblocks == 1 and self._halt_after == self._checkpoint_block_idx - 1:
                 logger.warning(
                     "HALT-AFTER: simulating interrupt after block %d",
                     self._checkpoint_block_idx - 1,
                 )
+                self._halt_after_fired = True
                 raise KeyboardInterrupt("--halt-after block %d" % (self._checkpoint_block_idx - 1))
 
 
