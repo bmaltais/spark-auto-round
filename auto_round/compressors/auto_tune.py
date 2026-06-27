@@ -89,7 +89,7 @@ def auto_tune(
         HuggingFace model config (for extracting hidden dimensions).
     budget_bytes : int
         Hard memory ceiling in bytes for estimated peak per block.
-        Typically: min(args.memory_budget, 120) * 1024^3.
+        Typically: args.max_model_mem * 1024^3.
     resume_context : dict or None
         From checkpoint progress.json, if resuming:
             exit_reason : str | None     ("oom", "interrupted", None)

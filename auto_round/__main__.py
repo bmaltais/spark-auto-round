@@ -80,20 +80,13 @@ class BasicArgumentParser(argparse.ArgumentParser):
             help="Disable torch.compile (enabled by default).",
         )
         basic.add_argument(
-            "--memory_utilization",
-            default=75,
-            type=int,
-            help="Memory utilization threshold (50-95). Models using more than "
-                 "this percentage of available memory trigger block-by-block "
-                 "offloading to disk. Default: 75.",
-        )
-        basic.add_argument(
-            "--memory_budget",
+            "--max_model_mem",
             default=96,
             type=int,
-            help="Per-block memory budget in GiB for the auto-tuner. "
-                 "Default: 96 (75%% of 128 GiB). Max: 120. "
-                 "Sets a hard ceiling on estimated peak memory per block.",
+            help="Max model memory budget in GiB. Models exceeding this at rest "
+                 "will use block-offload (lazy loading from meta device). "
+                 "Also sets the hard ceiling for per-block peak memory during "
+                 "auto-tune relaxation. Default: 96 (75%% of 128 GiB). Max: 120.",
         )
         basic.add_argument(
             "--trust-remote-code",
@@ -209,8 +202,7 @@ def tune(args):
     platform = "hf"
     enable_torch_compile = not args.disable_torch_compile
 
-    # --- Clamp memory_utilization to safe range ---
-    memory_utilization = max(50, min(95, args.memory_utilization)) / 100.0
+    max_model_mem = args.max_model_mem
 
     # Validate scheme
     if scheme not in PRESET_SCHEMES:
@@ -230,9 +222,9 @@ def tune(args):
     # --- Estimate memory strategy BEFORE model load ---
     from auto_round.utils.device import estimate_memory_strategy, log_memory_analysis
     use_offload, memory_info = estimate_memory_strategy(
-        model_name, memory_utilization=memory_utilization
+        model_name, max_model_mem_giB=max_model_mem
     )
-    log_memory_analysis(memory_info, memory_utilization, budget_gb=float(args.memory_budget))
+    log_memory_analysis(memory_info, max_model_mem_giB=max_model_mem)
 
     # If model exceeds memory threshold, load on meta device (zero memory)
     # and load blocks on demand during quantization.
@@ -251,13 +243,8 @@ def tune(args):
         model_config = None
 
     if model_config is not None:
-        # Budget from --memory-budget flag (direct GiB ceiling)
-        budget_bytes = min(args.memory_budget, 120) * (1024 ** 3)
-        if args.memory_budget < 16:
-            logger.warning(
-                "Very low --memory_budget (%d GiB) — aggressive relaxations "
-                "will be applied.", args.memory_budget
-            )
+        # Budget from --max_model_mem flag (direct GiB ceiling)
+        budget_bytes = max_model_mem * (1024 ** 3)
 
         # Build user_settings dict for the auto-tuner
         user_settings = {

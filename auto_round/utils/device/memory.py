@@ -272,10 +272,13 @@ def _estimate_param_count_from_config(config) -> int:
 
 def estimate_memory_strategy(
     model_path: str,
-    memory_utilization: float = 0.75,
+    max_model_mem_giB: float = 96.0,
 ) -> tuple[bool, dict]:
-    """Decide whole-model vs block-offload based on model size from config."""
-    memory_utilization = max(0.5, min(0.95, memory_utilization))
+    """Decide whole-model vs block-offload based on model size from config.
+
+    If the model-at-rest exceeds ``max_model_mem_giB``, use block-offload
+    (meta device + lazy loading).  Otherwise load the whole model on GPU.
+    """
 
     try:
         from transformers import AutoConfig
@@ -314,7 +317,7 @@ def estimate_memory_strategy(
     else:
         available_bytes = 0
 
-    threshold_bytes = int(available_bytes * memory_utilization)
+    threshold_bytes = int(max_model_mem_giB * (1024 ** 3))
     use_offload = model_bytes > threshold_bytes
     strategy = "block-offload" if use_offload else "whole-model"
 
@@ -335,7 +338,7 @@ def estimate_memory_strategy(
     return use_offload, info
 
 
-def log_memory_analysis(info: dict, memory_utilization: float = 0.75, budget_gb: float = 96.0) -> None:
+def log_memory_analysis(info: dict, max_model_mem_giB: float = 96.0) -> None:
     """Log comprehensive memory analysis at INFO level."""
     model_gb = info["model_bytes"] / (1024 ** 3)
     avail_gb = info["available_bytes"] / (1024 ** 3)
@@ -352,7 +355,7 @@ def log_memory_analysis(info: dict, memory_utilization: float = 0.75, budget_gb:
         "  Parameters:     %.1fB\n"
         "  Model size:     %.1f GB (%s)\n"
         "  GPU:            %.1f GB total, %.1f GB available\n"
-        "  Budget:         %.1f GiB (auto-tuner per-block ceiling)\n"
+        "  Budget:         %.1f GiB (offload threshold + auto-tuner ceiling)\n"
         "  Strategy:       %s%s\n"
         "  Blocks:         %d layers\n"
         "  Block size:     ~%.0f MB each",
@@ -360,7 +363,7 @@ def log_memory_analysis(info: dict, memory_utilization: float = 0.75, budget_gb:
         num_params_b,
         model_gb, info["dtype"],
         total_gpu_gb, avail_gb,
-        budget_gb,
+        max_model_mem_giB,
         info["strategy"],
         " (model exceeds threshold)" if info["strategy"] == "block-offload"
             else " (fits in memory)",

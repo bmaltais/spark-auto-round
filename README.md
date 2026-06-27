@@ -44,7 +44,7 @@ To run comparative benchmarks and compare and contrast quantized models we need 
 
 - **Simple CLI**: Easy-to-use command-line interface i.e. `spark-auto-round <model>`
 - **GB10 Optimized**: Whole-model quantization with 128GB unified memory, or automatic fallback to block-by-block loading for large models that don't fit in memory
-- **Memory-Aware Auto-Tuner**: Pre-flight peak memory estimation automatically adjusts `--batch_size`, `--seqlen`, and `--nsamples` when the per-block peak exceeds the `--memory_budget` ceiling. Relaxes the least quality-damaging setting first.
+- **Memory-Aware Auto-Tuner**: Pre-flight peak memory estimation automatically adjusts `--batch_size`, `--seqlen`, and `--nsamples` when the per-block peak exceeds the `--max_model_mem` ceiling. Relaxes the least quality-damaging setting first.
 - **Stateful Resume**: If quantization is interrupted (Ctrl-C) or crashes (OOM), re-running the same command resumes from the last completed block. On OOM resume the auto-tuner tightens its budget to avoid re-crashing.
 - **torch.compile**: Always enabled for faster quantization on CUDA
 - **New Datasets** including OpenCode Instruct and updated Github Code Clean
@@ -173,8 +173,14 @@ spark-auto-round <model> [options]
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--memory_utilization` | 75 | Percentage of available memory (50–95) used to decide whether to offload blocks to disk. Higher values keep more blocks in GPU memory. |
-| `--memory_budget` | 96 | Per-block memory budget in GiB for the auto-tuner. Sets a hard ceiling on estimated peak memory per block. Default is 75% of 128 GiB. Max: 120. |
+| `--max_model_mem` | 96 | Memory budget in GiB. Two roles: (1) hard ceiling on estimated peak per-block memory for the auto-tuner, and (2) threshold for whole-model vs block-offload — if the model-at-rest exceeds this many GiB, blocks are loaded on demand from meta device. Default is 75% of 128 GiB. |
+
+### Speed/Debug Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--shakedown` | false | Override iters=1, nsamples=1, seqlen=2, batch_size=1 for fastest end-to-end test. Quantized model will be very low quality. |
+| `--halt-after N` | -1 | Simulate a KeyboardInterrupt after saving the N-th block's checkpoint. Works with or without `--shakedown`. |
 
 ### Tuning Arguments
 
@@ -199,7 +205,8 @@ spark-auto-round <model> [options]
 | `--seed` | 42 | Random seed |
 | `--clear-cache` | false | Delete checkpoint cache before starting. Forces a fresh run even if a valid checkpoint exists. |
 | `--dry-run` | false | Run the full init pipeline except quantization tuning; write config files only for inspection. |
-| `--trust-remote-code` | true | Trust remote code when loading models. |
+| `--trust-remote-code` | true | Trust remote code when loading models (disable with `--no-trust-remote-code`). |
+| `--bs` | — | Alias for `--batch_size`. |
 | `--mllm` | false | Force multimodal mode |
 
 ## Memory and Resume
@@ -208,7 +215,7 @@ spark-auto-round <model> [options]
 
 Before quantization begins, the CLI estimates per-block peak GPU memory using your model's configuration and the current settings (`--batch_size`, `--seqlen`, `--nsamples`). The estimator accounts for block weights, wrapper parameters, activation outputs, gradient tensors, calibration inputs, attention scores, QKV intermediates, FFN intermediates, and a 1.50× safety factor for CUDA allocator overhead.
 
-If the estimated peak exceeds the `--memory_budget` ceiling (default 96 GiB), the auto-tuner relaxes settings in priority order to bring peak below budget:
+If the estimated peak exceeds the `--max_model_mem` ceiling (default 96 GiB), the auto-tuner relaxes settings in priority order to bring peak below budget:
 
 | Step | Setting | Relief | Quality Impact |
 |------|---------|--------|----------------|

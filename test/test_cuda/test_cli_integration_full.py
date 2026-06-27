@@ -61,30 +61,6 @@ class TestCliDataFlow:
         assert len(steps) == 0
         assert adjusted == user_settings
 
-    def test_memory_safety_margin_reduces_utilization(self):
-        """--memory_safety_margin 5 -> effective utilization = 70%."""
-        args_memory_utilization = 75  # percent
-        margin = 5
-        effective = args_memory_utilization / 100.0 - margin / 100.0
-        effective = max(0.50, min(0.95, effective))
-        assert effective == 0.70
-
-    def test_memory_safety_margin_clamps_low(self):
-        """--memory_safety_margin 30 clamps to 0.50."""
-        args_memory_utilization = 75
-        margin = 30
-        effective = args_memory_utilization / 100.0 - margin / 100.0
-        effective = max(0.50, min(0.95, effective))
-        assert effective == 0.50  # clamped at minimum
-
-    def test_memory_safety_margin_clamps_high(self):
-        """--memory_safety_margin negative clamps to 0.95."""
-        args_memory_utilization = 100
-        margin = -10
-        effective = args_memory_utilization / 100.0 - margin / 100.0
-        effective = max(0.50, min(0.95, effective))
-        assert effective == 0.95  # clamped at maximum
-
     def test_output_dir_cache_check(self, tmp_path):
         """Verify the .cache/progress.json check logic."""
         # Create fake cache with OOM exit reason
@@ -290,89 +266,38 @@ class TestCliDataFlow:
 # ---------------------------------------------------------------------------
 
 
-class TestMemoryBudgetValidation:
-    """Test --memory-budget CLI flag processing.
+class TestMaxModelMemValidation:
+    """Test --max_model_mem CLI flag processing.
 
-    These tests verify that the memory budget argument is correctly clamped
-    and validated. All tests are mock-only (no GPU required).
-
-    The logic mirrors auto_round/__main__.py lines 239-246:
-        budget_bytes = min(args.memory_budget, 120) * (1024 ** 3)
-        if args.memory_budget < 16:
-            logger.warning(...)
+    All tests are mock-only (no GPU required).  No clamping is applied;
+    the user controls the exact value.
     """
 
-    def test_budget_clamped_to_120(self):
-        """Budget > 120 is clamped to 120 GiB."""
-        args_memory_budget = 150  # user passes 150
-        budget_bytes = min(args_memory_budget, 120) * (1024 ** 3)
-        expected = 120 * (1024 ** 3)
-        assert budget_bytes == expected, f"Expected {expected}, got {budget_bytes}"
-
-    def test_budget_at_120_not_clamped(self):
-        """Budget exactly 120 is accepted without clamping."""
-        args_memory_budget = 120
-        budget_bytes = min(args_memory_budget, 120) * (1024 ** 3)
-        expected = 120 * (1024 ** 3)
-        assert budget_bytes == expected
-
-    def test_budget_below_16_triggers_warning(self, caplog):
-        """Budget < 16 emits a warning log message."""
-        from auto_round.utils.common import logger
-
-        args_memory_budget = 10
-        if args_memory_budget < 16:
-            with caplog.at_level(logging.WARNING):
-                logger.warning(
-                    "Very low --memory_budget (%d GiB) — aggressive relaxations "
-                    "will be applied.", args_memory_budget
-                )
-        assert "Very low" in caplog.text
-        assert "10" in caplog.text
-
-    def test_budget_at_16_no_warning(self, caplog):
-        """Budget exactly 16 does NOT trigger a warning."""
-        from auto_round.utils.common import logger
-
-        args_memory_budget = 16
-        if args_memory_budget < 16:
-            with caplog.at_level(logging.WARNING):
-                logger.warning(
-                    "Very low --memory_budget (%d GiB) — aggressive relaxations "
-                    "will be applied.", args_memory_budget
-                )
-        assert "Very low" not in caplog.text
-
-    def test_default_budget_is_96(self):
-        """Default budget is 96 GiB when --memory-budget not specified."""
+    def test_default_is_96(self):
+        """Default max_model_mem is 96 GiB."""
         from auto_round.__main__ import BasicArgumentParser
 
         parser = BasicArgumentParser()
         args = parser.parse_args(["some-model"])
-        assert args.memory_budget == 96, (
-            f"Default memory_budget should be 96, got {args.memory_budget}"
+        assert args.max_model_mem == 96, (
+            f"Default max_model_mem should be 96, got {args.max_model_mem}"
         )
 
-    def test_budget_negative_passes_through(self):
-        """Negative budget passes through min() unchanged (caller validates)."""
-        args_memory_budget = -5
-        # min(-5, 120) = -5 — clamping only applies upper bound
-        budget_bytes = min(args_memory_budget, 120) * (1024 ** 3)
-        assert budget_bytes < 0, "Negative budget should result in negative bytes"
-
-    def test_budget_zero_produces_zero_bytes(self):
-        """Zero budget produces zero bytes (extreme edge case)."""
-        args_memory_budget = 0
-        budget_bytes = min(args_memory_budget, 120) * (1024 ** 3)
-        assert budget_bytes == 0
-
-    def test_budget_converted_to_bytes_correctly(self):
+    def test_bytes_conversion(self):
         """Verify GiB to bytes conversion is correct."""
-        args_memory_budget = 96
-        budget_bytes = min(args_memory_budget, 120) * (1024 ** 3)
-        # 96 GiB = 96 * 1024^3 bytes
-        expected = 96 * 1024 * 1024 * 1024
-        assert budget_bytes == expected
+        budget_bytes = 32 * (1024 ** 3)
+        assert budget_bytes == 32 * 1024 * 1024 * 1024
+
+    def test_arbitrary_value_unchanged(self):
+        """Any user value passes through without clamping."""
+        from auto_round.__main__ import BasicArgumentParser
+
+        parser = BasicArgumentParser()
+        for v in [1, 10, 50, 96, 120, 200]:
+            args = parser.parse_args(["some-model", "--max_model_mem", str(v)])
+            assert args.max_model_mem == v, (
+                f"Expected {v}, got {args.max_model_mem}"
+            )
 
 
 # ---------------------------------------------------------------------------

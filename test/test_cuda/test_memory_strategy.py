@@ -15,22 +15,6 @@ class TestEstimateMemoryStrategy:
         with pytest.raises(ValueError, match="Cannot load config"):
             estimate_memory_strategy("/nonexistent/model/path")
 
-    def test_clamping_high_threshold(self):
-        """Threshold above 0.95 should be clamped."""
-        from auto_round.utils.device import estimate_memory_strategy
-        # This tests the clamping logic; actual estimation requires a valid model
-        # We verify via source inspection that clamping exists
-        import inspect
-        source = inspect.getsource(estimate_memory_strategy)
-        assert "max(0.5, min(0.95" in source
-
-    def test_clamping_low_threshold(self):
-        """Threshold below 0.5 should be clamped."""
-        import inspect
-        from auto_round.utils.device import estimate_memory_strategy
-        source = inspect.getsource(estimate_memory_strategy)
-        assert "max(0.5, min(0.95" in source
-
 
 class TestEstimateParamCountFromConfig:
     """Tests for _estimate_param_count_from_config()."""
@@ -125,7 +109,7 @@ class TestLogMemoryAnalysis:
             "block_size_bytes": 437_500_000,
         }
 
-        log_memory_analysis(info, memory_utilization=0.75)
+        log_memory_analysis(info, max_model_mem_giB=96.0)
 
         # The custom logger writes to stderr; verify the function didn't crash
         # and produces the expected info dict structure
@@ -149,7 +133,7 @@ class TestLogMemoryAnalysis:
             "block_size_bytes": 3_812_500_000,
         }
 
-        log_memory_analysis(info, memory_utilization=0.75)
+        log_memory_analysis(info, max_model_mem_giB=96.0)
 
         # Verify the function didn't crash and the strategy is correct
         assert info["strategy"] == "block-offload"
@@ -158,18 +142,18 @@ class TestLogMemoryAnalysis:
 class TestIntegrationCLI:
     """Integration tests for CLI memory strategy."""
 
-    def test_memory_utilization_in_help(self):
-        """Verify --memory_utilization appears in CLI help."""
+    def test_max_model_mem_in_help(self):
+        """Verify --max_model_mem appears in CLI help."""
         import subprocess
         result = subprocess.run(
             ["python", "-m", "auto_round", "--help"],
             capture_output=True, text=True, cwd="/home/whpthomas/spark-auto-round"
         )
-        assert "--memory_utilization" in result.stdout
+        assert "--max_model_mem" in result.stdout
 
-    def test_memory_utilization_clamped_in_source(self):
-        """Verify clamping logic exists in tune()."""
+    def test_max_model_mem_passed_to_estimator(self):
+        """Verify max_model_mem is forwarded to estimate_memory_strategy."""
         import inspect
         from auto_round.__main__ import tune
         source = inspect.getsource(tune)
-        assert "max(50, min(95" in source
+        assert "max_model_mem_giB=max_model_mem" in source
